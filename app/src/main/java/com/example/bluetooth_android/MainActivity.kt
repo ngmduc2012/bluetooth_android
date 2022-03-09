@@ -108,12 +108,12 @@ class MainActivity : AppCompatActivity() {
         onInitState()
 
         //click on button in kotlin, the following: https://stackoverflow.com/a/64187408/10621168
-        btn_turn_on.setOnClickListener {onOffBluetooth()}
-        btn_visible.setOnClickListener {appearDevice()}
-        btn_accept.setOnClickListener {acceptConnect() }
-        btn_find.setOnClickListener {findDevice()}
-        btn_disconnect.setOnClickListener {disconnect() }
-        btn_send.setOnClickListener {sendData()}
+        btn_turn_on.setOnClickListener { onOffBluetooth() }
+        btn_visible.setOnClickListener { visibleDevice() }
+        btn_accept.setOnClickListener { acceptConnect() }
+        btn_find.setOnClickListener { findDevice() }
+        btn_disconnect.setOnClickListener { disconnect() }
+        btn_send.setOnClickListener { sendData() }
 
     }
 
@@ -146,44 +146,30 @@ class MainActivity : AppCompatActivity() {
         setState()
     }
 
-
-    fun sendData() {
-        if (mConnectedThread != null) {
-
-            Log.d("duc", "mConnectedThread != $mConnectedThread")
-
-            mConnectedThread!!.write("${et_data.text}".toByteArray())
-            // Start the thread to connect with the given device
-            // Start the thread to manage the connection and perform transmissions
-        } else {
-            runOnUiThread {
-                tv_name.visibility = View.VISIBLE
-                tv_name.text = "There is no connected thread"
-            }
-//                Log.d("duc", "mConnectedThread == $mConnectedThread")
-        }
-    }
-
-    // Constants that indicate the current connection state
-    val STATE_NONE = 7          //Status: There is no bluetooth in device - Trạng thái thiết bị không có bluetooth
-    val STATE_TURN_OFF = 8      //Status: There is the bluetooth and it turns off - Trạng thái thiết bị có bluetooth và hiện tại đang tắt.
-    val STATE_TURN_ON = 9       //Status: Turn on bluetooth, no connect, no visible - Trạng thái đang bật bluetooth nhưng không kết nối hoặc hiển thị với các thiết bị khác.
-    val STATE_VISIBLE = 10      //Status: Turn on bluetooth, and visible for discovering of other device - Trạng thái bật bluetooth và hiển thị cho phép các thiết bị khác tìm ra mình.
-    val STATE_ACCEPT = 11       //Status: Turn on bluetooth, and allow other device connects - Trạng thái bật bluetooth và cho phép các thiết bị khác kết nối tới.
-    val STATE_CONNECTED = 12    //Status: Connecting to other device and transmission data. - Trạng thái đang kết nối với thiết bị khác và có thể truyền dữ liệu
     /**
-     *################################################################################################
-     *Title:        Setup status for view
-     *Description:  Get data from api (/send) then to Google, Google will send notify contains this data
-     *              to device by token of this device.
-     *------------------------------------------------------------------------------------------------
-     *Mô tả:        (1). Khi [STATE_NONE] - thiết bị không có bluetooth, sẽ chỉ hiển thị ra 1 dòng thông
-     *              báo là thiết bị không có bluetooth
-     *              (2). Khi [STATE_TURN_OFF] - thiết bị đang tắt bluetooth, sẽ chỉ hiển thị nút bật
-     *              bluetooth
-     *              (3).
+     * ################################################################################################
+     * Title: Setup status for view
+     * Description:
+     * ------------------------------------------------------------------------------------------------
+     * Mô tả:
+     * (1). Khi [STATE_NONE] - thiết bị không có bluetooth, sẽ chỉ hiển thị ra 1 dòng thông báo là thiết bị
+     *      không có bluetooth
+     * (2). Khi [STATE_TURN_OFF] - thiết bị đang tắt bluetooth, sẽ chỉ hiển thị nút bật bluetooth
+     * (3). Khi [STATE_TURN_ON] - thiết bị đã bật bluetooth, sẽ hiển thị nút tìm kiếm thiết bị và danh sách
+     *      thiết bị tìm kiếm, hiển thị nút VISIBLE (cho phép hiển thị với các thiết bị đang bật bluetooth
+     * (4). Khi [STATE_VISIBLE] - thiết bị đã cho phép các thiết bị khác tìm thấy mình bằng bluetooth. Giao
+     *      diện sẽ hiển thị thêm nút ACCEPT để cho phép các thiết bị khác truy cập
+     * (5). Khi [STATE_ACCEPT] - thiết bị đã cho phép các thiết bị khác truy cập. Không hiển thị thêm giao diện
+     * (6). Khi [STATE_CONNECTED] - thiết bị đã kết nối với 1 thiết bị khác. Hiển thị khung chat và nút
+     *      DISCONNECT để ngắt kết nối.
      *################################################################################################
      */
+    val STATE_NONE = 7
+    val STATE_TURN_OFF = 8
+    val STATE_TURN_ON = 9
+    val STATE_VISIBLE = 10
+    val STATE_ACCEPT = 11
+    val STATE_CONNECTED = 12
     private var mState = STATE_NONE
     fun setState() {
         /**(1)*/
@@ -302,11 +288,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    fun appearDevice() {
+    fun visibleDevice() {
         // Cho phép hiển thị với các thiết bị khác.
         if (!mBluetoothAdapter!!.isDiscovering) {
             val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
             startActivityForResult(enableBtIntent, REQUEST_DISCOVERABLE_BT)
+        }
+
+    }
+
+    // Get result in dialog, the following: https://stackoverflow.com/a/10407371/10621168
+    @SuppressLint("MissingPermission")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        //Bật tắt bluetooth
+        if (requestCode == REQUEST_ENABLE_BT) {
+            if (resultCode == Activity.RESULT_OK) {
+                btn_turn_on.text = "TURN OFF"
+                mState = STATE_TURN_ON
+                setState()
+            }
+            if (resultCode == Activity.RESULT_CANCELED) {
+                btn_turn_on.text = "TURN ON"
+                mState = STATE_TURN_OFF
+                setState()
+            }
+        }
+
+        // Cho phép hiển thị với các thiết bị khác
+        if (requestCode == REQUEST_DISCOVERABLE_BT) {
+            if (resultCode == 120) {
+                mState = STATE_VISIBLE
+                setState()
+            }
+            if (resultCode == 0) {
+                mState = STATE_TURN_ON
+                setState()
+            }
         }
 
     }
@@ -349,37 +368,107 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    // Get result in dialog, the following: https://stackoverflow.com/a/10407371/10621168
-    @SuppressLint("MissingPermission")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
+    fun sendData() {
+        if (mConnectedThread != null) {
 
-        //Bật tắt bluetooth
-        if (requestCode == REQUEST_ENABLE_BT) {
-            if (resultCode == Activity.RESULT_OK) {
-                btn_turn_on.text = "TURN OFF"
-                mState = STATE_TURN_ON
-                setState()
+            Log.d("duc", "mConnectedThread != $mConnectedThread")
+
+            mConnectedThread!!.write("${et_data.text}".toByteArray())
+            // Start the thread to connect with the given device
+            // Start the thread to manage the connection and perform transmissions
+        } else {
+            runOnUiThread {
+                tv_name.visibility = View.VISIBLE
+                tv_name.text = "There is no connected thread"
             }
-            if (resultCode == Activity.RESULT_CANCELED) {
-                btn_turn_on.text = "TURN ON"
-                mState = STATE_TURN_OFF
-                setState()
-            }
+//                Log.d("duc", "mConnectedThread == $mConnectedThread")
+        }
+    }
+
+    fun disconnect() {
+        if (mConnectThread != null) {
+            mConnectThread!!.cancel()
+            mConnectThread = null
+            Log.d("duc", "cancel mConnectThread")
         }
 
-        // Cho phép hiển thị với các thiết bị khác
-        if (requestCode == REQUEST_DISCOVERABLE_BT) {
-            if (resultCode == 120) {
-                mState = STATE_VISIBLE
-                setState()
-            }
-            if (resultCode == 0) {
-                mState = STATE_TURN_ON
-                setState()
-            }
+        if (mSecureAcceptThread != null) {
+            mSecureAcceptThread!!.cancel()
+            mSecureAcceptThread = null
+            Log.d("duc", "cancel mSecureAcceptThread")
         }
 
+        if (mConnectedThread != null) {
+            mConnectedThread!!.cancel()
+            mConnectedThread = null
+            Log.d("duc", "cancel mConnectedThread")
+        }
+
+        mState = STATE_VISIBLE
+        runOnUiThread {
+            setState()
+        }
+    }
+
+    //function for requesting location permission
+    fun locationPermissionCheck(): Boolean {
+        return if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+            !== PackageManager.PERMISSION_GRANTED
+        ) {
+
+            //show explanation for allowing permission
+            if (ActivityCompat.shouldShowRequestPermissionRationale(
+                    this,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                )
+            ) {
+                AlertDialog.Builder(this).setTitle("Locations Permission Needed")
+                    .setMessage("Locations permission needed to continue")
+                    .setPositiveButton("OK", DialogInterface.OnClickListener { dialog, which ->
+                        ActivityCompat.requestPermissions(
+                            this@MainActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                            LOCATION_REQUEST
+                        )
+                    }).create().show()
+
+                //request permission without explanation
+            } else {
+                ActivityCompat.requestPermissions(
+                    this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                    LOCATION_REQUEST
+                )
+            }
+            false
+        } else {
+            true
+        }
+    }
+
+    //Tắt tìm kiếm nếu không dùng, vì rất tốn tài nguyên.
+    private val receiver = object : BroadcastReceiver() {
+
+        @SuppressLint("MissingPermission", "NotifyDataSetChanged")
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    // Discovery has found a device. Get the BluetoothDevice
+                    // object and its info from the Intent.
+                    val device: BluetoothDevice =
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)!!
+                    listDevice.add(device)
+                    listDeviceAdapter.notifyDataSetChanged()
+                }
+            }
+        }
+    }
+    override fun onDestroy() {
+        super.onDestroy()
+
+        // Don't forget to unregister the ACTION_FOUND receiver.
+        unregisterReceiver(receiver)
     }
 
     @SuppressLint("MissingPermission")
@@ -442,51 +531,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 Log.e(TAG, "Could not close the connect socket", e)
             }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-
-        // Don't forget to unregister the ACTION_FOUND receiver.
-        unregisterReceiver(receiver)
-    }
-
-
-    //function for requesting location permission
-    fun locationPermissionCheck(): Boolean {
-        return if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            )
-            !== PackageManager.PERMISSION_GRANTED
-        ) {
-
-            //show explanation for allowing permission
-            if (ActivityCompat.shouldShowRequestPermissionRationale(
-                    this,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                )
-            ) {
-                AlertDialog.Builder(this).setTitle("Locations Permission Needed")
-                    .setMessage("Locations permission needed to continue")
-                    .setPositiveButton("OK", DialogInterface.OnClickListener { dialog, which ->
-                        ActivityCompat.requestPermissions(
-                            this@MainActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                            LOCATION_REQUEST
-                        )
-                    }).create().show()
-
-                //request permission without explanation
-            } else {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                    LOCATION_REQUEST
-                )
-            }
-            false
-        } else {
-            true
         }
     }
 
@@ -686,47 +730,6 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private val receiver = object : BroadcastReceiver() {
-
-        @SuppressLint("MissingPermission", "NotifyDataSetChanged")
-        override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
-                BluetoothDevice.ACTION_FOUND -> {
-                    // Discovery has found a device. Get the BluetoothDevice
-                    // object and its info from the Intent.
-                    val device: BluetoothDevice =
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)!!
-                    listDevice.add(device)
-                    listDeviceAdapter.notifyDataSetChanged()
-                }
-            }
-        }
-    }
-
-    fun disconnect() {
-        if (mConnectThread != null) {
-            mConnectThread!!.cancel()
-            mConnectThread = null
-            Log.d("duc", "cancel mConnectThread")
-        }
-
-        if (mSecureAcceptThread != null) {
-            mSecureAcceptThread!!.cancel()
-            mSecureAcceptThread = null
-            Log.d("duc", "cancel mSecureAcceptThread")
-        }
-
-        if (mConnectedThread != null) {
-            mConnectedThread!!.cancel()
-            mConnectedThread = null
-            Log.d("duc", "cancel mConnectedThread")
-        }
-
-        mState = STATE_VISIBLE
-        runOnUiThread {
-            setState()
-        }
-    }
 
 }
 
