@@ -11,10 +11,9 @@ import android.bluetooth.BluetoothSocket
 import android.content.*
 import android.content.ContentValues.TAG
 import android.content.pm.PackageManager
-import android.os.Build
-import android.os.Bundle
-import android.os.Handler
-import android.os.Message
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.*
 import android.util.Log
 import android.view.View
 import android.widget.*
@@ -24,9 +23,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
+import com.example.bluetooth_android.JSONData.Companion.fromJson
+import java.io.*
 import java.util.*
 
 
@@ -60,9 +58,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btn_find: Button
     private lateinit var btn_disconnect: Button
     private lateinit var btn_send: Button
+    private lateinit var btn_image: Button
     private lateinit var tv_no_blue: TextView
     private lateinit var tv_name: TextView
     private lateinit var tv_data: TextView
+    private lateinit var iv_data: ImageView
     private lateinit var et_data: EditText
     private lateinit var pb_connecting: ProgressBar
 
@@ -82,10 +82,12 @@ class MainActivity : AppCompatActivity() {
         btn_find = findViewById(R.id.btn_find)
         btn_disconnect = findViewById(R.id.btn_disconnect)
         btn_send = findViewById(R.id.btn_send)
+        btn_image = findViewById(R.id.btn_image)
 
         list_device = findViewById(R.id.list_device)
         tv_name = findViewById(R.id.tv_name)
         tv_data = findViewById(R.id.tv_data)
+        iv_data = findViewById(R.id.iv_data)
         et_data = findViewById(R.id.et_data)
 
         // Show dialog progress, the following: https://www.tutorialkart.com/kotlin-android/android-indeterminate-progressbar-kotlin-example/
@@ -114,6 +116,8 @@ class MainActivity : AppCompatActivity() {
         btn_find.setOnClickListener { findDevice() }
         btn_disconnect.setOnClickListener { disconnect() }
         btn_send.setOnClickListener { sendData() }
+        //get image from gallery, Lấy hình ảnh trong thư viện ảnh, the following: https://stackoverflow.com/a/55933725/10621168
+        btn_image.setOnClickListener { checkPermissionForImage() }
 
     }
 
@@ -186,6 +190,8 @@ class MainActivity : AppCompatActivity() {
             tv_name.visibility = View.GONE
             tv_data.visibility = View.GONE
             et_data.visibility = View.GONE
+            iv_data.visibility = View.GONE
+            btn_image.visibility = View.GONE
         }
         /**(2)*/
         else if (mState == STATE_TURN_OFF) {
@@ -201,6 +207,8 @@ class MainActivity : AppCompatActivity() {
             tv_name.visibility = View.GONE
             tv_data.visibility = View.GONE
             et_data.visibility = View.GONE
+            iv_data.visibility = View.GONE
+            btn_image.visibility = View.GONE
         }
         /**(3)*/
         else if (mState == STATE_TURN_ON) {
@@ -215,6 +223,9 @@ class MainActivity : AppCompatActivity() {
             tv_name.visibility = View.GONE
             tv_data.visibility = View.GONE
             et_data.visibility = View.GONE
+            iv_data.visibility = View.GONE
+            btn_image.visibility = View.GONE
+
             btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
         }
         /**(4)*/
@@ -230,6 +241,8 @@ class MainActivity : AppCompatActivity() {
             tv_name.visibility = View.GONE
             tv_data.visibility = View.GONE
             et_data.visibility = View.GONE
+            iv_data.visibility = View.GONE
+            btn_image.visibility = View.GONE
 
             btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
             btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
@@ -246,6 +259,8 @@ class MainActivity : AppCompatActivity() {
             tv_name.visibility = View.GONE
             tv_data.visibility = View.GONE
             et_data.visibility = View.GONE
+            iv_data.visibility = View.GONE
+            btn_image.visibility = View.GONE
 
             btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
             btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
@@ -263,11 +278,14 @@ class MainActivity : AppCompatActivity() {
             tv_name.visibility = View.VISIBLE
             tv_data.visibility = View.VISIBLE
             et_data.visibility = View.VISIBLE
+            iv_data.visibility = View.VISIBLE
+            btn_image.visibility = View.VISIBLE
 
             btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
             btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
         }
     }
+
 
     @SuppressLint("MissingPermission")
     fun onOffBluetooth() {
@@ -280,6 +298,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Tắt bluetooth
         else {
+            disconnect()
             mBluetoothAdapter.disable()
             btn_turn_on.text = "TURN ON"
             mState = STATE_TURN_OFF
@@ -298,7 +317,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Get result in dialog, the following: https://stackoverflow.com/a/10407371/10621168
-    @SuppressLint("MissingPermission")
+    @SuppressLint("MissingPermission", "NewApi")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
@@ -328,7 +347,44 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        //Lấy ảnh trong thư viện
+        if (resultCode == Activity.RESULT_OK && requestCode == IMAGE_PICK_CODE) {
+            // I'M GETTING THE URI OF THE IMAGE AS DATA AND SETTING IT TO THE IMAGEVIEW
+            iv_data.setImageURI(data?.data)
+//            val bmOptions = BitmapFactory.Options()
+//            val bm = BitmapFactory.decodeFile(data?.data!!.pathSegments.last(), bmOptions)
+//            val bytes = File(data.data!!.path!!).readBytes()
+            // Open a specific media item using InputStream.
+            val resolver = applicationContext.contentResolver
+            resolver.openInputStream(data?.data!!).use { stream ->
+                // Perform operations on "stream".
+//                Log.d("duc", "${stream!!}")
+                encodedImage = Base64.getEncoder().encodeToString(stream!!.readBytes())
+                Log.d("duc", "encodedImage: ${encodedImage}")
+            }
+//            Log.d("duc", "${data.data} - ${data.data!!.path} - $bm - ${data.data!!.encodedPath}  - ${data.data!!.pathSegments.last()}  " +
+//                    "- $ - $sd")
+
+//            val image = File(sd + filePath, imageName)
+//            var bitmap = BitmapFactory.decodeFile(image.absolutePath, bmOptions)
+//            bitmap = Bitmap.createScaledBitmap(
+//                bitmap!!,
+//                DocPath.parent.getWidth(),
+//                DocPath.parent.getHeight(),
+//                true
+//            )
+//            if(bm != null) {
+//                val baos = ByteArrayOutputStream()
+//                bm.compress(Bitmap.CompressFormat.JPEG, 100, baos) // bm is the bitmap object
+//
+//                val b: ByteArray = baos.toByteArray()
+//                encodedImage = Base64.getEncoder().encodeToString(b)
+//            }
+
+        }
+
     }
+
 
     fun acceptConnect() {
         // Cho phép các thiết bị khác kết nối dưới dạng truy cập bảo mật.
@@ -367,15 +423,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
+    var encodedImage: String = ""
     fun sendData() {
+
         if (mConnectedThread != null) {
+            var jsonData = JSONData("${et_data.text}", "$encodedImage")
 
-            Log.d("duc", "mConnectedThread != $mConnectedThread")
+            Log.d("duc", "jsonData = ${jsonData.toJson().length}")
 
-            mConnectedThread!!.write("${et_data.text}".toByteArray())
-            // Start the thread to connect with the given device
-            // Start the thread to manage the connection and perform transmissions
+            var content = jsonData.toJson()
+            var numberString = 650
+            var numberLoop = if(content.length%numberString>0){
+                content.length/numberString + 1
+            } else {
+                content.length/numberString
+            }
+
+            if(numberString > content.length) {
+                var jsonPacket = JsonPacket(numberLoop, numberLoop, content)
+                mConnectedThread!!.write(jsonPacket.toJson().toByteArray())
+            }
+            else {
+                var starSubString = 0
+                var endSubString = numberString
+                var contentSubString = ""
+                for( i in 0..(numberLoop-1) ){
+                    contentSubString = content.substring(starSubString, endSubString)
+                    var jsonPacket = JsonPacket(numberLoop, i, contentSubString)
+                    mConnectedThread!!.write(jsonPacket.toJson().toByteArray())
+                    starSubString += numberString
+                    if(endSubString + numberString> content.length){
+                        endSubString = content.length
+                    } else {
+                        endSubString += numberString
+                    }
+                }
+            }
+
+
+
         } else {
             runOnUiThread {
                 tv_name.visibility = View.VISIBLE
@@ -408,6 +494,16 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             setState()
         }
+    }
+
+    private var IMAGE_PICK_CODE = 13
+    private fun pickImageFromGallery() {
+        val intent = Intent(Intent.ACTION_PICK)
+        intent.type = "image/*"
+        startActivityForResult(
+            intent,
+            IMAGE_PICK_CODE
+        ) // GIVE AN INTEGER VALUE FOR IMAGE_PICK_CODE LIKE 1000
     }
 
     //function for requesting location permission
@@ -447,6 +543,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var PERMISSION_CODE_READ = 14
+    private val galleryPermissions = arrayOf(
+        Manifest.permission.READ_EXTERNAL_STORAGE,
+        Manifest.permission.WRITE_EXTERNAL_STORAGE
+    )
+
+    private fun checkPermissionForImage() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if ((checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED)
+                && (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED)
+            ) {
+                requestPermissions(
+                    galleryPermissions,
+                    PERMISSION_CODE_READ
+                ) // GIVE AN INTEGER VALUE FOR PERMISSION_CODE_READ LIKE 1001
+            } else {
+                pickImageFromGallery()
+            }
+        }
+    }
+
     //Tắt tìm kiếm nếu không dùng, vì rất tốn tài nguyên.
     private val receiver = object : BroadcastReceiver() {
 
@@ -464,6 +581,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
     override fun onDestroy() {
         super.onDestroy()
 
@@ -612,8 +730,12 @@ class MainActivity : AppCompatActivity() {
             while (true) {
                 // Read from the InputStream.
                 try {
+                    Log.d("duc", "mmInStream: ${mmInStream}")
                     numBytes = mmInStream.read(mmBuffer)
+                    mmInStream.available()
                     // Send the obtained bytes to the UI activity.
+//                    val writeMessage = String(mmInStream.readBytes())
+//                    Log.d("duc", "mmOutStream.write xxx2: $writeMessage")
                     val readMsg = handler.obtainMessage(
                         MESSAGE_READ, numBytes, -1,
                         mmBuffer
@@ -636,6 +758,8 @@ class MainActivity : AppCompatActivity() {
             try {
                 mmOutStream.write(bytes)
                 // Share the sent message with the UI activity.
+//                val writeMessage = String(bytes)
+//                Log.d("duc", "mmOutStream.write xxx: $writeMessage")
                 val writtenMsg = handler.obtainMessage(
                     MESSAGE_WRITE, -1, -1, mmBuffer
                 )
@@ -675,10 +799,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // blue chủ gửi phần dữ liệu trong 1 lần gửi, cần ghép chúng lại.
+    private var jsonPacket: String =  ""
+
+
     /**
      * The Handler that gets information back from the BluetoothChatService
      */
-    private val handler: Handler = object : Handler() {
+    private val handler: Handler = @SuppressLint("HandlerLeak")
+    object : Handler() {
+        @SuppressLint("NewApi")
         override fun handleMessage(msg: Message) {
 //            val activity: FragmentActivity = applicationContext
             when (msg.what) {
@@ -696,17 +826,48 @@ class MainActivity : AppCompatActivity() {
                     val writeBuf = msg.obj as ByteArray
                     // construct a string from the buffer
                     val writeMessage = String(writeBuf)
-//                    Log.d("duc", "writeMessage: $writeMessage")
+                    Log.d("duc", "writeMessage: $writeMessage")
 //                    mConversationArrayAdapter.add("Me:  $writeMessage")
                 }
                 MESSAGE_READ -> {
                     val readBuf = msg.obj as ByteArray
+//                    Log.d("duc", "readBuf: ${readBuf.size}")
                     // construct a string from the valid bytes in the buffer
                     val readMessage = String(readBuf, 0, msg.arg1)
                     Log.d("duc", "readMessage: $readMessage")
-                    runOnUiThread {
-                        tv_data.text = "$readMessage"
-                    }
+//                    if(jsonPacket == "") jsonPacket = readMessage
+//                    else jsonPacket += readMessage
+//                    Log.d("duc", "jsonPacket: $jsonPacket")
+//                    Log.d("duc", "jsonPacket: ${jsonPacket.length}")
+
+//                    handleLongData(readMessage)
+//                    try {
+////                        Log.d("duc", "jsonData1: $jsonData1")
+//                        Log.d("duc", "jsonData1: ${jsonData1.length}")
+//                        var jsonData = fromJson(jsonPacket)
+//                        Log.d("duc", "jsonData: ${jsonData!!.mes}")
+//                        if(jsonData!!.image.length > 1){
+//                            val decodedBytes = Base64.getDecoder().decode(jsonData.image)
+//                            val image: Bitmap =
+//                                BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+//                            runOnUiThread {
+//                                tv_data.text = "${jsonData.mes}"
+//                                iv_data.setImageBitmap(image)
+//                            }
+//                        }
+//                        else  {
+//                            runOnUiThread {
+//                                tv_data.text = "${jsonData!!.mes}"
+//                            }
+//                        }
+//                        jsonData1 = ""
+//                    } catch (e: Exception) {
+//                        Log.d("duc", "jsonData no")
+////                        runOnUiThread {
+////                            tv_name.visibility = View.VISIBLE
+////                            tv_name.text = "${e}"
+////                        }
+//                    }
 //                    mConversationArrayAdapter.add(mConnectedDeviceName.toString() + ":  " + readMessage)
                 }
 //                MESSAGE_DEVICE_NAME -> {
@@ -728,7 +889,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
 
 
 }
