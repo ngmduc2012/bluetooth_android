@@ -9,9 +9,9 @@ data class JSONData (
     val mes: String,
     val image: String,
 ) {
-    public fun toJson() = klaxon.toJsonString(this)
+    public fun toJsonData() = klaxon.toJsonString(this)
 
     companion object {
-        public fun fromJson(json: String) = klaxon.parse<JSONData>(json)
+        public fun fromJsonData(json: String) = klaxon.parse<JSONData>(json)
     }
 }

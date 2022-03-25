@@ -13,6 +13,7 @@ import android.content.ContentValues.TAG
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.os.*
 import android.util.Log
 import android.view.View
@@ -23,32 +24,69 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.bluetooth_android.JSONData.Companion.fromJson
+import com.example.bluetooth_android.JSONData.Companion.fromJsonData
+import com.example.bluetooth_android.JsonPacket.Companion.fromJsonPacket
+import com.example.bluetooth_android.JsonResult.Companion.fromJsonResult
 import java.io.*
+import java.math.BigInteger
+import java.security.MessageDigest
 import java.util.*
 
 
 class MainActivity : AppCompatActivity() {
 
+    /**
+     * Using for the permission initialization: Enable bluetooth, discoverable bluetooth, location
+     * (using for discover other device that opened discoverable bluetooth)
+     * ------------------------------------------------------------------------------------------------
+     * Dùng để khởi tạo các quyền truy cập: Bật bluetooth, hiển thị bluetooth với các thiết bị,
+     * khởi tạo vị trí (sử dụng để tìm kiếm thiết bị đang bật bluetooth)
+     */
     private val REQUEST_ENABLE_BT = 0
     private val REQUEST_DISCOVERABLE_BT = 1
-    private val BLUETOOTH_REQUEST = 2
-    private val LOCATION_REQUEST = 3
-    private val MESSAGE_READ = 4
-    private val MESSAGE_WRITE = 5
-    private val MESSAGE_TOAST = 6
-    var TOAST = "toast"
+    private val LOCATION_REQUEST = 2
 
+    /**
+     * Using for the status initialization: Read message, Write message, show toast
+     * ------------------------------------------------------------------------------------------------
+     * Dùng để khởi tạo các trạng thái: Đọc thông tin nhận, và viết ra thông tin cần gửi, hiển thị
+     * thông báo toast
+     */
+    private val MESSAGE_READ = 3
+    private val MESSAGE_WRITE = 4
+    private val MESSAGE_TOAST = 5
+    val TOAST = "toast"
+
+    /**
+     * Declare status: Accept, Connect, Connected
+     * ---------------------------------------------------------------------------------------------
+     * Khai báo trạng thái: Cho phép truy cập, Kết nối và đã kết nối.
+     */
     private var mSecureAcceptThread: AcceptThread? = null
     private var mConnectThread: ConnectThread? = null
     private var mConnectedThread: ConnectedThread? = null
 
+
+    /**
+     * Using for the initialization that is type of bluetooth connection: This is SECURE
+     * ---------------------------------------------------------------------------------------------
+     * Dùng để khởi tạo loại bluetooth sẽ kết nối: Loại bluetooth được sử dụng là dạng bảo mật.
+     */
     private val NAME_SECURE = "BluetoothChatSecure"
 
-    // Random UUID is born
+    /**
+     * Random UUID is born, UUID is as same as the port in http
+     * ---------------------------------------------------------------------------------------------
+     * UUID được sinh ngẫu nhiên, UUID là đối số giống như port trong http
+     */
     private val MY_UUID_SECURE = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66")
 
-    // Khai báo bluetooth adapter (Kết nối với bluetooth phần cứng.
+    // Khai báo bluetooth adapter (Kết nối với bluetooth phần cứng).
+    /**
+     * Declare bluetooth adapter (Connect with the hardware)
+     * ---------------------------------------------------------------------------------------------
+     * Khai báo bluetooth adapter (Kết nối với bluetooth phần cứng).
+     */
     val mBluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
 
     //late init view, the following: https://stackoverflow.com/a/44285813/10621168
@@ -115,38 +153,46 @@ class MainActivity : AppCompatActivity() {
         btn_accept.setOnClickListener { acceptConnect() }
         btn_find.setOnClickListener { findDevice() }
         btn_disconnect.setOnClickListener { disconnect() }
-        btn_send.setOnClickListener { sendData() }
+        btn_send.setOnClickListener { sendStartData() }
         //get image from gallery, Lấy hình ảnh trong thư viện ảnh, the following: https://stackoverflow.com/a/55933725/10621168
         btn_image.setOnClickListener { checkPermissionForImage() }
 
     }
 
-
-    fun onInitState() {
-
-        // Kiển tra xem thiết bị có hỗ trợ bluetooth không.
+    /**
+     * ################################################################################################
+     * FUNCTION   : Setup status for view
+     * DESCRIPTION:
+     * (1) Checking if the device supports the bluetooth
+     * (2) Checking if the bluetooth is opened
+     * (3) Setup status for showing on UI
+     * ------------------------------------------------------------------------------------------------
+     * CHỨC NĂNG: Cài đặt trạng thái ban đầu
+     * MÔ TẢ    :
+     * (1) Kiểm tra thiết bị có hỗ trợ bluetooth hay không
+     * (2) Kiếm tra thiết bị đang bật hay tắt bluetooth
+     * (3) Cài đặt trạng thái để hiển thị ra giao diện ngoài màn hình.
+     * ################################################################################################
+     */
+    private val TURN_ON = "TURN ON"
+    private val TURN_OFF = "TURN OFF"
+    private fun onInitState() {
+        /**(1)*/
         if (mBluetoothAdapter == null) {
             tv_no_blue.append("This device not supported")
             mState = STATE_NONE
         } else {
-            //if bluetooth is compatible, ask the user to
-            //enable bluetooth without leaving the app itself
-            mState = STATE_TURN_OFF
-
-            if (!mBluetoothAdapter.isEnabled) {
-                btn_turn_on.text = "TURN ON"
-//                val btEnableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-//                startActivityForResult(btEnableIntent, BLUETOOTH_REQUEST)
-
-                //call location permission access
-//                locationPermissionCheck()
-
-            } else {
-                btn_turn_on.text = "TURN OFF"
+            /**(2)*/
+            if (mBluetoothAdapter.isEnabled) {
+                btn_turn_on.text = TURN_OFF
                 mState = STATE_TURN_ON
 
+            } else {
+                btn_turn_on.text = TURN_ON
+                mState = STATE_TURN_OFF
             }
         }
+        /**(3)*/
         setState()
     }
 
@@ -154,13 +200,23 @@ class MainActivity : AppCompatActivity() {
      * ################################################################################################
      * Title: Setup status for view
      * Description:
+     * (1). If [STATE_NONE] - The meaning is the device no support bluetooth, only show one notify
+     * line: This device not supported
+     * (2). If [STATE_TURN_OFF] - Turning off bluetooth state, only show button turn on bluetooth
+     * (3). If [STATE_TURN_ON] - Turning on bluetooth state, show button find device, list device,
+     * button VISIBLE (function: discoverable for other device)
+     * (4). If [STATE_VISIBLE] - Discoverable state (other device is able to discover by bluetooth)
+     * show button ACCEPT (function: allow other device connects)
+     * (5). If [STATE_ACCEPT] - Allow accept state: Allow other device connect. No show more
+     * (6). If [STATE_CONNECTED] - Connected state: Show frame chat and button DISCONNECT (function:
+     * disconnect with
      * ------------------------------------------------------------------------------------------------
      * Mô tả:
      * (1). Khi [STATE_NONE] - thiết bị không có bluetooth, sẽ chỉ hiển thị ra 1 dòng thông báo là thiết bị
      *      không có bluetooth
      * (2). Khi [STATE_TURN_OFF] - thiết bị đang tắt bluetooth, sẽ chỉ hiển thị nút bật bluetooth
      * (3). Khi [STATE_TURN_ON] - thiết bị đã bật bluetooth, sẽ hiển thị nút tìm kiếm thiết bị và danh sách
-     *      thiết bị tìm kiếm, hiển thị nút VISIBLE (cho phép hiển thị với các thiết bị đang bật bluetooth
+     *      thiết bị tìm kiếm, hiển thị nút VISIBLE (cho phép hiển thị với các thiết bị đang bật bluetooth)
      * (4). Khi [STATE_VISIBLE] - thiết bị đã cho phép các thiết bị khác tìm thấy mình bằng bluetooth. Giao
      *      diện sẽ hiển thị thêm nút ACCEPT để cho phép các thiết bị khác truy cập
      * (5). Khi [STATE_ACCEPT] - thiết bị đã cho phép các thiết bị khác truy cập. Không hiển thị thêm giao diện
@@ -177,138 +233,168 @@ class MainActivity : AppCompatActivity() {
     private var mState = STATE_NONE
     fun setState() {
         /**(1)*/
-        if (mState == STATE_NONE) {
-            pb_connecting.visibility = View.GONE
-            tv_no_blue.visibility = View.VISIBLE
-            btn_turn_on.visibility = View.GONE
-            btn_visible.visibility = View.GONE
-            btn_accept.visibility = View.GONE
-            btn_find.visibility = View.GONE
-            btn_disconnect.visibility = View.GONE
-            btn_send.visibility = View.GONE
-            list_device.visibility = View.GONE
-            tv_name.visibility = View.GONE
-            tv_data.visibility = View.GONE
-            et_data.visibility = View.GONE
-            iv_data.visibility = View.GONE
-            btn_image.visibility = View.GONE
-        }
-        /**(2)*/
-        else if (mState == STATE_TURN_OFF) {
-            pb_connecting.visibility = View.GONE
-            tv_no_blue.visibility = View.GONE
-            btn_turn_on.visibility = View.VISIBLE
-            btn_visible.visibility = View.GONE
-            btn_accept.visibility = View.GONE
-            btn_find.visibility = View.GONE
-            btn_disconnect.visibility = View.GONE
-            btn_send.visibility = View.GONE
-            list_device.visibility = View.GONE
-            tv_name.visibility = View.GONE
-            tv_data.visibility = View.GONE
-            et_data.visibility = View.GONE
-            iv_data.visibility = View.GONE
-            btn_image.visibility = View.GONE
-        }
-        /**(3)*/
-        else if (mState == STATE_TURN_ON) {
-            pb_connecting.visibility = View.GONE
-            btn_turn_on.visibility = View.VISIBLE
-            btn_visible.visibility = View.VISIBLE
-            btn_accept.visibility = View.GONE
-            btn_find.visibility = View.VISIBLE
-            btn_disconnect.visibility = View.GONE
-            btn_send.visibility = View.GONE
-            list_device.visibility = View.VISIBLE
-            tv_name.visibility = View.GONE
-            tv_data.visibility = View.GONE
-            et_data.visibility = View.GONE
-            iv_data.visibility = View.GONE
-            btn_image.visibility = View.GONE
+        when (mState) {
+            STATE_NONE -> {
+                pb_connecting.visibility = View.GONE
+                tv_no_blue.visibility = View.VISIBLE
+                btn_turn_on.visibility = View.GONE
+                btn_visible.visibility = View.GONE
+                btn_accept.visibility = View.GONE
+                btn_find.visibility = View.GONE
+                btn_disconnect.visibility = View.GONE
+                btn_send.visibility = View.GONE
+                list_device.visibility = View.GONE
+                tv_name.visibility = View.GONE
+                tv_data.visibility = View.GONE
+                et_data.visibility = View.GONE
+                iv_data.visibility = View.GONE
+                btn_image.visibility = View.GONE
+            }
+            /**(2)*/
+            STATE_TURN_OFF -> {
+                pb_connecting.visibility = View.GONE
+                tv_no_blue.visibility = View.GONE
+                btn_turn_on.visibility = View.VISIBLE
+                btn_visible.visibility = View.GONE
+                btn_accept.visibility = View.GONE
+                btn_find.visibility = View.GONE
+                btn_disconnect.visibility = View.GONE
+                btn_send.visibility = View.GONE
+                list_device.visibility = View.GONE
+                tv_name.visibility = View.GONE
+                tv_data.visibility = View.GONE
+                et_data.visibility = View.GONE
+                iv_data.visibility = View.GONE
+                btn_image.visibility = View.GONE
+            }
+            /**(3)*/
+            STATE_TURN_ON -> {
+                pb_connecting.visibility = View.GONE
+                btn_turn_on.visibility = View.VISIBLE
+                btn_visible.visibility = View.VISIBLE
+                btn_accept.visibility = View.GONE
+                btn_find.visibility = View.VISIBLE
+                btn_disconnect.visibility = View.GONE
+                btn_send.visibility = View.GONE
+                list_device.visibility = View.VISIBLE
+                tv_name.visibility = View.GONE
+                tv_data.visibility = View.GONE
+                et_data.visibility = View.GONE
+                iv_data.visibility = View.GONE
+                btn_image.visibility = View.GONE
 
-            btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
-        }
-        /**(4)*/
-        else if (mState == STATE_VISIBLE) {
-            pb_connecting.visibility = View.GONE
-            btn_turn_on.visibility = View.VISIBLE
-            btn_visible.visibility = View.VISIBLE
-            btn_accept.visibility = View.VISIBLE
-            btn_find.visibility = View.VISIBLE
-            btn_disconnect.visibility = View.GONE
-            btn_send.visibility = View.GONE
-            list_device.visibility = View.VISIBLE
-            tv_name.visibility = View.GONE
-            tv_data.visibility = View.GONE
-            et_data.visibility = View.GONE
-            iv_data.visibility = View.GONE
-            btn_image.visibility = View.GONE
+                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
+            }
+            /**(4)*/
+            STATE_VISIBLE -> {
+                pb_connecting.visibility = View.GONE
+                btn_turn_on.visibility = View.VISIBLE
+                btn_visible.visibility = View.VISIBLE
+                btn_accept.visibility = View.VISIBLE
+                btn_find.visibility = View.VISIBLE
+                btn_disconnect.visibility = View.GONE
+                btn_send.visibility = View.GONE
+                list_device.visibility = View.VISIBLE
+                tv_name.visibility = View.GONE
+                tv_data.visibility = View.GONE
+                et_data.visibility = View.GONE
+                iv_data.visibility = View.GONE
+                btn_image.visibility = View.GONE
 
-            btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-            btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
-        }
-        /**(5)*/
-        else if (mState == STATE_ACCEPT) {
-            btn_turn_on.visibility = View.VISIBLE
-            btn_visible.visibility = View.VISIBLE
-            btn_accept.visibility = View.VISIBLE
-            btn_find.visibility = View.VISIBLE
-            btn_disconnect.visibility = View.GONE
-            btn_send.visibility = View.GONE
-            list_device.visibility = View.VISIBLE
-            tv_name.visibility = View.GONE
-            tv_data.visibility = View.GONE
-            et_data.visibility = View.GONE
-            iv_data.visibility = View.GONE
-            btn_image.visibility = View.GONE
+                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
+            }
+            /**(5)*/
+            STATE_ACCEPT -> {
+                btn_turn_on.visibility = View.VISIBLE
+                btn_visible.visibility = View.VISIBLE
+                btn_accept.visibility = View.VISIBLE
+                btn_find.visibility = View.VISIBLE
+                btn_disconnect.visibility = View.GONE
+                btn_send.visibility = View.GONE
+                list_device.visibility = View.VISIBLE
+                tv_name.visibility = View.GONE
+                tv_data.visibility = View.GONE
+                et_data.visibility = View.GONE
+                iv_data.visibility = View.GONE
+                btn_image.visibility = View.GONE
 
-            btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-            btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-        }
-        /**(6)*/
-        else if (mState == STATE_CONNECTED) {
-            pb_connecting.visibility = View.GONE
-            btn_turn_on.visibility = View.VISIBLE
-            btn_visible.visibility = View.VISIBLE
-            btn_accept.visibility = View.VISIBLE
-            btn_find.visibility = View.VISIBLE
-            btn_disconnect.visibility = View.VISIBLE
-            btn_send.visibility = View.VISIBLE
-            list_device.visibility = View.VISIBLE
-            tv_name.visibility = View.VISIBLE
-            tv_data.visibility = View.VISIBLE
-            et_data.visibility = View.VISIBLE
-            iv_data.visibility = View.VISIBLE
-            btn_image.visibility = View.VISIBLE
+                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+            }
+            /**(6)*/
+            STATE_CONNECTED -> {
+                pb_connecting.visibility = View.GONE
+                btn_turn_on.visibility = View.VISIBLE
+                btn_visible.visibility = View.VISIBLE
+                btn_accept.visibility = View.VISIBLE
+                btn_find.visibility = View.VISIBLE
+                btn_disconnect.visibility = View.VISIBLE
+                btn_send.visibility = View.VISIBLE
+                list_device.visibility = View.VISIBLE
+                tv_name.visibility = View.VISIBLE
+                tv_data.visibility = View.VISIBLE
+                et_data.visibility = View.VISIBLE
+                iv_data.visibility = View.VISIBLE
+                btn_image.visibility = View.VISIBLE
 
-            btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-            btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+            }
         }
     }
 
 
+    /**
+     * ################################################################################################
+     * FUNCTION   : On/Off bluetooth
+     * DESCRIPTION:
+     *
+     * (1) Turn on: Show dialog allow turn on bluetooth. If agree, change to [STATE_TURN_ON] state
+     * (2) Turn off: If bluetooth is opened, turn off and change to [STATE_TURN_OFF] state
+     * ------------------------------------------------------------------------------------------------
+     * CHỨC NĂNG: Bật/Tắt bluetooth
+     * MÔ TẢ    :
+     *
+     * (1) Bật bluetooth: hiển thị thông báo truy cập bluetooth . Nếu đồng ý sẽ chuyển sang trạng
+     * thái [STATE_TURN_ON]
+     * (2) Tắt bluetooth: Nếu bluetooth đang bật sẽ được tắt và chuyển về trạng thái [STATE_TURN_OFF]
+     * ################################################################################################
+     */
     @SuppressLint("MissingPermission")
     fun onOffBluetooth() {
-        // Bật bluetooth
+        /**(1)*/
         if (!mBluetoothAdapter!!.isEnabled) {
+            //Tham khảo/ The following: https://developer.android.com/guide/topics/connectivity/bluetooth/setup
             val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            // hiển thị cấp phép quyền truy cập vào bluetooth,
             startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
-            locationPermissionCheck()
         }
-        // Tắt bluetooth
+        /**(2)*/
         else {
             disconnect()
             mBluetoothAdapter.disable()
-            btn_turn_on.text = "TURN ON"
+            btn_turn_on.text = TURN_ON
             mState = STATE_TURN_OFF
             setState()
         }
     }
 
+    /**
+     * ################################################################################################
+     * FUNCTION   : Discoverable - Other device is able to see this device
+     * DESCRIPTION:
+     *
+     * Show dialog allow, if ok, change UI to [STATE_VISIBLE] state, else change UI to [STATE_TURN_ON]
+     * ------------------------------------------------------------------------------------------------
+     * CHỨC NĂNG: Cho phép hiển thị với các thiết bị khác.
+     * MÔ TẢ    :
+     *
+     * Hiển thị thông báo cho phép hiển thị, nếu đồng ý thì chuyển sang trạng thái [STATE_VISIBLE]
+     * nếu không đồng ý thì chuyển sang trạng thái [STATE_TURN_ON]
+     * ################################################################################################
+     */
     @SuppressLint("MissingPermission")
     fun visibleDevice() {
-        // Cho phép hiển thị với các thiết bị khác.
         if (!mBluetoothAdapter!!.isDiscovering) {
             val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
             startActivityForResult(enableBtIntent, REQUEST_DISCOVERABLE_BT)
@@ -321,21 +407,21 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        //Bật tắt bluetooth
+        /** The result for [onOffBluetooth]*/
         if (requestCode == REQUEST_ENABLE_BT) {
             if (resultCode == Activity.RESULT_OK) {
-                btn_turn_on.text = "TURN OFF"
+                btn_turn_on.text = TURN_OFF
                 mState = STATE_TURN_ON
                 setState()
             }
             if (resultCode == Activity.RESULT_CANCELED) {
-                btn_turn_on.text = "TURN ON"
+                btn_turn_on.text = TURN_ON
                 mState = STATE_TURN_OFF
                 setState()
             }
         }
 
-        // Cho phép hiển thị với các thiết bị khác
+        /** The result for [visibleDevice]*/
         if (requestCode == REQUEST_DISCOVERABLE_BT) {
             if (resultCode == 120) {
                 mState = STATE_VISIBLE
@@ -347,47 +433,34 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        //Lấy ảnh trong thư viện
+        /** The result for [pickImageFromGallery] */
         if (resultCode == Activity.RESULT_OK && requestCode == IMAGE_PICK_CODE) {
-            // I'M GETTING THE URI OF THE IMAGE AS DATA AND SETTING IT TO THE IMAGEVIEW
             iv_data.setImageURI(data?.data)
-//            val bmOptions = BitmapFactory.Options()
-//            val bm = BitmapFactory.decodeFile(data?.data!!.pathSegments.last(), bmOptions)
-//            val bytes = File(data.data!!.path!!).readBytes()
-            // Open a specific media item using InputStream.
             val resolver = applicationContext.contentResolver
             resolver.openInputStream(data?.data!!).use { stream ->
-                // Perform operations on "stream".
-//                Log.d("duc", "${stream!!}")
                 encodedImage = Base64.getEncoder().encodeToString(stream!!.readBytes())
-                Log.d("duc", "encodedImage: ${encodedImage}")
+                Log.d("duc", "encodedImage: $encodedImage")
             }
-//            Log.d("duc", "${data.data} - ${data.data!!.path} - $bm - ${data.data!!.encodedPath}  - ${data.data!!.pathSegments.last()}  " +
-//                    "- $ - $sd")
-
-//            val image = File(sd + filePath, imageName)
-//            var bitmap = BitmapFactory.decodeFile(image.absolutePath, bmOptions)
-//            bitmap = Bitmap.createScaledBitmap(
-//                bitmap!!,
-//                DocPath.parent.getWidth(),
-//                DocPath.parent.getHeight(),
-//                true
-//            )
-//            if(bm != null) {
-//                val baos = ByteArrayOutputStream()
-//                bm.compress(Bitmap.CompressFormat.JPEG, 100, baos) // bm is the bitmap object
-//
-//                val b: ByteArray = baos.toByteArray()
-//                encodedImage = Base64.getEncoder().encodeToString(b)
-//            }
 
         }
 
     }
 
-
-    fun acceptConnect() {
-        // Cho phép các thiết bị khác kết nối dưới dạng truy cập bảo mật.
+    /**
+     * ################################################################################################
+     * FUNCTION   : Allow other device is able to connect
+     * DESCRIPTION:
+     *
+     * Start [mSecureAcceptThread], allow connect form other device and change to [STATE_ACCEPT] state
+     * ------------------------------------------------------------------------------------------------
+     * CHỨC NĂNG: Cho phép các thiết bị khác kết nối.
+     * MÔ TẢ    :
+     *
+     * Bật luồng cho phép các thiết bị khác kết nối dưới dạng bảo mật và chuyển trạng thái thành
+     * [STATE_ACCEPT]
+     * ################################################################################################
+     */
+    private fun acceptConnect() {
         if (mSecureAcceptThread == null) {
             mSecureAcceptThread = AcceptThread(true)
             mSecureAcceptThread!!.start()
@@ -397,24 +470,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("MissingPermission")
+    /**
+     * ################################################################################################
+     * FUNCTION   : Find other device that is turning on bluetooth.
+     * DESCRIPTION:
+     *
+     * (1) Status of finding all device nearby:
+     *  *  Open location permission (Discover other device)
+     *  *  If in discovering state, using [receiver] for finding, result devices is saved in [listDevice]
+     *  (Note: [receiver] takes a lot of the Bluetooth adapter's resources, turn off if necessary
+     * (2) Found paired devices and show in list
+     * ------------------------------------------------------------------------------------------------
+     * CHỨC NĂNG: Tìm kiếm các thiết bị bật bluetooth xung quanh hoặc đã từng kết nối.
+     * MÔ TẢ    :
+     *
+     * (1) Trạng thái tìm kiếm tất cả các thiết bị gần đấy:
+     *  *  Bật quyền truy cập vị trí (dùng để tìm các thết bị khác)
+     *  *  Nếu đang ở trạng thái hiển thị với các thiết bị khác thì bắt đầu tìm kiếm bằng biển
+     *  [receiver], kết quả được lưu vào [listDevice]. (Chú ý: [receiver] tốn tài nguyên, tắt khi không
+     *  cần thiết. ([onDestroy])
+     * (2) Tìm kiếm thiết bị đã từng kết nối và hiển thị ra màng hình ([pairedDevices])
+     * ################################################################################################
+     */
+    private val FIND_ALL = "FIND ALL"
+    private val FIND_PAIRED = "FIND PAIRED"
+
+    @SuppressLint("MissingPermission", "NotifyDataSetChanged")
     fun findDevice() {
-        if (btn_find.text == "FIND ALL") {
-            btn_find.text = "FIND PAIRED"
+        /** (1) */
+        if (btn_find.text == FIND_ALL) {
+            btn_find.text = FIND_PAIRED
             locationPermissionCheck()
             if (mBluetoothAdapter!!.isEnabled && !mBluetoothAdapter.isDiscovering) {
                 // Register for broadcasts when a device is discovered.
                 listDevice.clear()
+                //Tham khảo/ The following: https://developer.android.com/guide/topics/connectivity/bluetooth/find-bluetooth-devices
                 val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
                 registerReceiver(receiver, filter)
                 mBluetoothAdapter.startDiscovery()
             }
 
-        } else {
-            btn_find.text = "FIND ALL"
-
-            // Lấy các thiết bị đã từng kết nối.
+        }
+        /** (2) */
+        else {
+            btn_find.text = FIND_ALL
             listDevice.clear()
+
             val pairedDevices: Set<BluetoothDevice>? = mBluetoothAdapter?.bondedDevices
             pairedDevices?.forEach { device ->
                 listDevice.add(device)
@@ -423,43 +524,88 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    var encodedImage: String = ""
-    fun sendData() {
-
-        if (mConnectedThread != null) {
-            var jsonData = JSONData("${et_data.text}", "$encodedImage")
-
-            Log.d("duc", "jsonData = ${jsonData.toJson().length}")
-
-            var content = jsonData.toJson()
-            var numberString = 650
-            var numberLoop = if(content.length%numberString>0){
-                content.length/numberString + 1
-            } else {
-                content.length/numberString
-            }
-
-            if(numberString > content.length) {
-                var jsonPacket = JsonPacket(numberLoop, numberLoop, content)
-                mConnectedThread!!.write(jsonPacket.toJson().toByteArray())
-            }
-            else {
-                var starSubString = 0
-                var endSubString = numberString
-                var contentSubString = ""
-                for( i in 0..(numberLoop-1) ){
-                    contentSubString = content.substring(starSubString, endSubString)
-                    var jsonPacket = JsonPacket(numberLoop, i, contentSubString)
-                    mConnectedThread!!.write(jsonPacket.toJson().toByteArray())
-                    starSubString += numberString
-                    if(endSubString + numberString> content.length){
-                        endSubString = content.length
-                    } else {
-                        endSubString += numberString
-                    }
+    private val receiver = object : BroadcastReceiver() {
+        @SuppressLint("MissingPermission", "NotifyDataSetChanged")
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    val device: BluetoothDevice =
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)!!
+                    listDevice.add(device)
+                    listDeviceAdapter.notifyDataSetChanged()
                 }
             }
+        }
+    }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        // Don't forget to unregister the ACTION_FOUND receiver.
+        unregisterReceiver(receiver)
+    }
+
+
+    /**
+     * ################################################################################################
+     * FUNCTION   : Handle data before send message.
+     * DESCRIPTION:
+     *
+     * (1) [content] The content of message: Get data in [et_data] and image (Base64String) in
+     * [encodedImage] into [JSONData] type, then change to String type and save in [content]
+     *  *  [number] the number of items will split and setup in a packet [JsonPacket], ~700 is the
+     * number that makes less mistakes.
+     *  *  [id] is the numbered packet order, start 0, Example: There are 10 packets ([sum]), [id]
+     * start from 0..9
+     * (2) [sum] is number of packets, = number of items in [content] / number of items in a packet
+     * [number], if there is a residual, add more 1 packet.
+     * (3) [sendData] Send message - FOR SENDER: data is split at [content] from [id] * [number] to
+     * ([id] + 1) * [number] or the end of [content], data will be packed into the packet [JsonPacket]
+     * include: [sum] number of packets, [id] the numbered packet order, the data that just split, (4)
+     * hash of data that just split (by MD5)
+     * (5) [sendResult] send result - FOR RECIPIENT: After getting data from SENDER, RECIPIENT will verify
+     * hash and add data [result], if success, return true, else, return false. Form result message
+     * [JsonResult] type, include: [id] the order of packet and result true or false.
+     * ------------------------------------------------------------------------------------------------
+     * CHỨC NĂNG: Xử lý dữ liệu cần truyền
+     * MÔ TẢ    :
+     *
+     * (1) [content] nội dung dữ liệu cần truyền: Lấy dữ liệu trong [et_data] và hình ảnh dạng base64String
+     * [encodedImage] thành json dạng [JSONData] sau đó chuyển thành String và lưu vào [content]
+     *  *  [number] số lượng phần tử trong [content] sẽ được cắt ra để truyền vào 1 gói tin dạng
+     * [JsonPacket], ~700 phẩn tử là số lượng truyền khó bị sảy ra sai sót.
+     *  *  [id] là thứ tự gói tin được đánh số bắt đầu từ 0, nếu có 10 gói tin ([sum]) thì [id] sẽ
+     *  chạy từ 0..9
+     * (2) [sum] là tổng số gói tin sẽ được truyền, = độ dài của [content] / số lượng phần tử trong 1 gói
+     * [number], nếu dư thì sẽ thêm 1 gói tin nữa.
+     * (3) [sendData] gửi dữ liệu đi - DÀNH CHO BÊN GỬI: dữ liệu sẽ được cắt từ [content] tại vị trí [id] * [number]
+     * đến vị trí ([id] + 1) * [number] hoặc vị trí cuối cùng của [content], dữ liệu sẽ được đóng gói
+     * vào gói tin [JsonPacket] bao gồm: [sum] tổng số gói tin sẽ truyền, [id] số thứ tự của gói tin
+     * đang được gửi đi, dữ liệu vừa cắt, (4) hàm băm MD5 của dữ liệu vừa được cắt.
+     * (5) [sendResult] gửi về kết quả - DÀNH CHO BÊN NHẬN: Sau khi nhận dữ liệu từ bên GỬI, bên NHẬN sẽ
+     * xác thực hàm băm và thêm dữ liệu vào [result], nếu thành công thì sẽ trả về kết quả thành công hoặc
+     * thất bại dưới dạng [JsonResult] gồm: [id] thứ tự gói gửi đi và kết quả true hoặc false
+     * ################################################################################################
+     */
+    var content: String? = null
+    var sum: Int = 0
+    var id = 0
+    var number = 700
+    var result: String = ""
+    private fun sendStartData() {
+
+        if (mConnectedThread != null) {
+            /** (1) */
+            val jsonData = JSONData("${et_data.text}", "$encodedImage")
+            content = jsonData.toJsonData()
+            id = 0
+            /** (2) */
+            sum = if (content!!.length % number > 0) {
+                (content!!.length / number + 1)
+            } else {
+                content!!.length / number
+            }
+            /** (3) */
+            sendData()
 
 
         } else {
@@ -471,7 +617,50 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun disconnect() {
+    fun sendData() {
+        val data = content!!.substring(
+            id * number,
+            if (content!!.length < (id + 1) * number) content!!.length else (id + 1) * number
+        )
+        val jsonPacket = JsonPacket(
+            sum,
+            id,
+            data,
+            /** (4) */
+            md5(data)
+        )
+        mConnectedThread!!.write(jsonPacket.toJsonPacket().toByteArray())
+    }
+
+    // hash MD5, the following: https://stackoverflow.com/a/64171625/10621168
+    fun md5(input: String): String {
+        val md = MessageDigest.getInstance("MD5")
+        return BigInteger(1, md.digest(input.toByteArray())).toString(16).padStart(32, '0')
+    }
+
+    /** (5) */
+    fun sendResult(id: Int, result: Boolean) {
+        val jsonResult = JsonResult(id, result)
+        mConnectedThread!!.write(jsonResult.toJsonResult().toByteArray())
+    }
+
+
+    /**
+     * ################################################################################################
+     * FUNCTION   : Disconnect with connected device.
+     * DESCRIPTION:
+     *
+     * Close all connect thread (connect, accept, connected) then change to [STATE_VISIBLE] status,
+     * setup value for sent message to default.
+     * ------------------------------------------------------------------------------------------------
+     * CHỨC NĂNG: Ngắt kết nối với thiết bị đang được kết nối.
+     * MÔ TẢ    :
+     *
+     * Đóng các luồng kết nối và chuyển về trạng thái [STATE_VISIBLE], các biến để truyền dữ liệu đi sẽ
+     * được đưa về mặc định.
+     * ################################################################################################
+     */
+    private fun disconnect() {
         if (mConnectThread != null) {
             mConnectThread!!.cancel()
             mConnectThread = null
@@ -489,6 +678,11 @@ class MainActivity : AppCompatActivity() {
             mConnectedThread = null
             Log.d("duc", "cancel mConnectedThread")
         }
+        id = 0
+        sum = 0
+        content = null
+        result = ""
+        encodedImage = ""
 
         mState = STATE_VISIBLE
         runOnUiThread {
@@ -496,18 +690,34 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private var IMAGE_PICK_CODE = 13
+    /**
+     * ################################################################################################
+     * FUNCTION   : Get image and change type to Base64 String in [encodedImage]
+     * DESCRIPTION:
+     *
+     * Get the image from gallery and change type to Base64 String in [encodedImage], this for create
+     * the message by [JSONData]
+     * ------------------------------------------------------------------------------------------------
+     * CHỨC NĂNG: Lấy hình ảnh và chuyển về dạng base64 string lưu vào biến [encodedImage]
+     * MÔ TẢ    :
+     *
+     * Lấy hình ảnh từ thư viện ảnh và chuyển về dạng Base64 String tại biến [encodedImage], biến này
+     * sau đó sẽ được truyền vào json để gửi đi ([JSONData]).
+     * ################################################################################################
+     */
+    var encodedImage: String = ""
+    private val IMAGE_PICK_CODE = 13
     private fun pickImageFromGallery() {
         val intent = Intent(Intent.ACTION_PICK)
         intent.type = "image/*"
         startActivityForResult(
             intent,
             IMAGE_PICK_CODE
-        ) // GIVE AN INTEGER VALUE FOR IMAGE_PICK_CODE LIKE 1000
+        )
     }
 
     //function for requesting location permission
-    fun locationPermissionCheck(): Boolean {
+    private fun locationPermissionCheck(): Boolean {
         return if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
@@ -543,6 +753,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    //function for requesting accept gallery permission
     private var PERMISSION_CODE_READ = 14
     private val galleryPermissions = arrayOf(
         Manifest.permission.READ_EXTERNAL_STORAGE,
@@ -557,49 +768,21 @@ class MainActivity : AppCompatActivity() {
                 requestPermissions(
                     galleryPermissions,
                     PERMISSION_CODE_READ
-                ) // GIVE AN INTEGER VALUE FOR PERMISSION_CODE_READ LIKE 1001
+                )
             } else {
                 pickImageFromGallery()
             }
         }
     }
 
-    //Tắt tìm kiếm nếu không dùng, vì rất tốn tài nguyên.
-    private val receiver = object : BroadcastReceiver() {
-
-        @SuppressLint("MissingPermission", "NotifyDataSetChanged")
-        override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
-                BluetoothDevice.ACTION_FOUND -> {
-                    // Discovery has found a device. Get the BluetoothDevice
-                    // object and its info from the Intent.
-                    val device: BluetoothDevice =
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)!!
-                    listDevice.add(device)
-                    listDeviceAdapter.notifyDataSetChanged()
-                }
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-
-        // Don't forget to unregister the ACTION_FOUND receiver.
-        unregisterReceiver(receiver)
-    }
-
+    // Connect bluetooth, the following: https://developer.android.com/guide/topics/connectivity/bluetooth/connect-bluetooth-devices
     @SuppressLint("MissingPermission")
     private inner class AcceptThread(b: Boolean) : Thread() {
-
-//        private val mmServerSocket: BluetoothServerSocket? = null
-
         private val mmServerSocket: BluetoothServerSocket? by lazy(LazyThreadSafetyMode.NONE) {
-            // UUID là đối số giống như port trong http
-            // Lắng nghe yêu cầu kết nối truyền đến
             mBluetoothAdapter?.listenUsingRfcommWithServiceRecord(NAME_SECURE, MY_UUID_SECURE)
         }
 
+        @SuppressLint("SetTextI18n")
         override fun run() {
             // Keep listening until exception occurs or a socket is returned.
             var shouldLoop = true
@@ -639,6 +822,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Closes the connect socket and causes the thread to finish.
+        @SuppressLint("SetTextI18n")
         fun cancel() {
             try {
                 mmServerSocket?.close()
@@ -651,7 +835,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
     @SuppressLint("MissingPermission")
     private inner class ConnectThread(device: BluetoothDevice) : Thread() {
 
@@ -659,6 +842,7 @@ class MainActivity : AppCompatActivity() {
             device.createRfcommSocketToServiceRecord(MY_UUID_SECURE)
         }
 
+        @SuppressLint("SetTextI18n")
         override fun run() {
             // Cancel discovery because it otherwise slows down the connection.
             mBluetoothAdapter?.cancelDiscovery()
@@ -718,12 +902,14 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    // Transfer Bluetooth data, the following: https://developer.android.com/guide/topics/connectivity/bluetooth/transfer-data
     private inner class ConnectedThread(private val mmSocket: BluetoothSocket) : Thread() {
 
         private val mmInStream: InputStream = mmSocket.inputStream
         private val mmOutStream: OutputStream = mmSocket.outputStream
         private val mmBuffer: ByteArray = ByteArray(1024) // mmBuffer store for the stream
 
+        @SuppressLint("SetTextI18n")
         override fun run() {
             var numBytes: Int // bytes returned from read()
 
@@ -734,8 +920,6 @@ class MainActivity : AppCompatActivity() {
                     numBytes = mmInStream.read(mmBuffer)
                     mmInStream.available()
                     // Send the obtained bytes to the UI activity.
-//                    val writeMessage = String(mmInStream.readBytes())
-//                    Log.d("duc", "mmOutStream.write xxx2: $writeMessage")
                     val readMsg = handler.obtainMessage(
                         MESSAGE_READ, numBytes, -1,
                         mmBuffer
@@ -758,8 +942,6 @@ class MainActivity : AppCompatActivity() {
             try {
                 mmOutStream.write(bytes)
                 // Share the sent message with the UI activity.
-//                val writeMessage = String(bytes)
-//                Log.d("duc", "mmOutStream.write xxx: $writeMessage")
                 val writtenMsg = handler.obtainMessage(
                     MESSAGE_WRITE, -1, -1, mmBuffer
                 )
@@ -799,16 +981,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // blue chủ gửi phần dữ liệu trong 1 lần gửi, cần ghép chúng lại.
-    private var jsonPacket: String =  ""
-
-
     /**
      * The Handler that gets information back from the BluetoothChatService
      */
     private val handler: Handler = @SuppressLint("HandlerLeak")
     object : Handler() {
-        @SuppressLint("NewApi")
+        @SuppressLint("NewApi", "SetTextI18n")
         override fun handleMessage(msg: Message) {
 //            val activity: FragmentActivity = applicationContext
             when (msg.what) {
@@ -826,49 +1004,158 @@ class MainActivity : AppCompatActivity() {
                     val writeBuf = msg.obj as ByteArray
                     // construct a string from the buffer
                     val writeMessage = String(writeBuf)
-                    Log.d("duc", "writeMessage: $writeMessage")
-//                    mConversationArrayAdapter.add("Me:  $writeMessage")
                 }
+                /**
+                 * ################################################################################################
+                 * FUNCTION   : Handle message.
+                 * DESCRIPTION:
+                 *
+                 * Overview:
+                 * Because transmission the large data by bluetooth make a lot of mistakes, have to split into
+                 * small packets.
+                 * SENDER: Sending message by [JSONData] type, after change to String type, the data will be split
+                 * into packets ([JsonPacket] type), Be numbered and send at [sendStartData]
+                 * (1) RECIPIENT: After get data that is [JsonPacket] type, comparison data with hash (MD5), then
+                 * add data to [result] and send the result message [JsonResult]
+                 * (2) SENDER: Get the result message [JsonResult], if the result is success (true). Send next
+                 * packet with [id]++, else resend this packet.
+                 * (3) RECIPIENT: After get all packets ([id] +1 = [sum]), change [result] from String type to
+                 * [JSONData] read and show on UI.
+                 * ------------------------------------------------------------------------------------------------
+                 * CHỨC NĂNG: Xử lý dữ liệu cần truyền
+                 * MÔ TẢ    :
+                 *
+                 * Tổng quan:
+                 * Bởi vì khi truyền dữ liệu lớn bằng bluetooth sẽ gây ra sai sót, cần chia nhỏ thành các gói nhỏ.
+                 * BÊN GỬI: dữ liệu sẽ được tạo dưới dạng [JSONData] sau đó được chuyển thành String, dữ liệu sẽ
+                 * được cắt ra thành các gói dạng [JsonPacket], được đánh số và gửi đi. (tại [sendStartData])
+                 * (1) BÊN NHẬN: sau khi nhận được dữ liệu dạng [JsonPacket], sẽ tiến hành so sáng với hàm băm, sau đó
+                 * ghép thêm kết quả vào [result] và trả về thông điện kết quả dạng [JsonResult]
+                 * (2) BÊN GỬI: Nhận thông điệp kết quả [JsonResult], nếu gói đó truyền thành công thì sẽ truyền
+                 * tiếp gói tin tiếp theo [id]++, nếu không truyền lại gói tin vừa gửi.
+                 * (3) BÊN NHẬN: Sau khi nhận hết gói tin ([id] +1 = [sum]) thì sẽ chuyển dự liệu trong [result] thành
+                 * [JSONData] và hiển thị ảnh và dữ liệu ra ngoài màn hình.
+                 * ################################################################################################
+                 */
                 MESSAGE_READ -> {
                     val readBuf = msg.obj as ByteArray
-//                    Log.d("duc", "readBuf: ${readBuf.size}")
                     // construct a string from the valid bytes in the buffer
                     val readMessage = String(readBuf, 0, msg.arg1)
                     Log.d("duc", "readMessage: $readMessage")
-//                    if(jsonPacket == "") jsonPacket = readMessage
-//                    else jsonPacket += readMessage
-//                    Log.d("duc", "jsonPacket: $jsonPacket")
-//                    Log.d("duc", "jsonPacket: ${jsonPacket.length}")
 
-//                    handleLongData(readMessage)
-//                    try {
-////                        Log.d("duc", "jsonData1: $jsonData1")
-//                        Log.d("duc", "jsonData1: ${jsonData1.length}")
-//                        var jsonData = fromJson(jsonPacket)
-//                        Log.d("duc", "jsonData: ${jsonData!!.mes}")
-//                        if(jsonData!!.image.length > 1){
-//                            val decodedBytes = Base64.getDecoder().decode(jsonData.image)
-//                            val image: Bitmap =
-//                                BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
-//                            runOnUiThread {
-//                                tv_data.text = "${jsonData.mes}"
-//                                iv_data.setImageBitmap(image)
-//                            }
-//                        }
-//                        else  {
-//                            runOnUiThread {
-//                                tv_data.text = "${jsonData!!.mes}"
-//                            }
-//                        }
-//                        jsonData1 = ""
-//                    } catch (e: Exception) {
-//                        Log.d("duc", "jsonData no")
-////                        runOnUiThread {
-////                            tv_name.visibility = View.VISIBLE
-////                            tv_name.text = "${e}"
-////                        }
-//                    }
-//                    mConversationArrayAdapter.add(mConnectedDeviceName.toString() + ":  " + readMessage)
+                    /**
+                     * Dành cho BÊN NHẬN
+                     * -----------------
+                     * For RECIPIENT
+                     * */
+                    try {
+
+                        val jsonPacket: JsonPacket? = fromJsonPacket(readMessage)
+                        Log.d("duc", "jsonPacket: ${jsonPacket!!.content}")
+                        Log.d("duc", "jsonPacket: ${jsonPacket.hash}")
+                        Log.d("duc", "jsonPacket: ${jsonPacket.id}")
+                        Log.d("duc", "jsonPacket: ${jsonPacket.sum}")
+                        /** (1) */
+                        if (md5(jsonPacket.content) == jsonPacket.hash) {
+                            sendResult(jsonPacket.id, true)
+                            if (jsonPacket.id + 1 < jsonPacket.sum) {
+                                // Hiển thị % dữ liệu truyền được. - Show percent loading.
+                                // The following: https://www.baeldung.com/java-calculate-percentage
+                                result += jsonPacket.content
+                                val percent: Double =
+                                    (jsonPacket.id.toDouble() / jsonPacket.sum.toDouble()) * 100
+                                runOnUiThread {
+                                    tv_data.text = "${percent}%"
+                                }
+                            } else {
+                                result += jsonPacket.content
+                                try {
+                                    /** (3) */
+                                    val jsonData: JSONData? = fromJsonData(result)
+                                    Log.d("duc", "jsonData: ${jsonData!!.mes}")
+                                    Log.d("duc", "jsonData: ${jsonData.image}")
+
+                                    if (jsonData.image.length > 1) {
+                                        val decodedBytes =
+                                            Base64.getDecoder().decode(jsonData.image)
+                                        val matrix = Matrix()
+
+                                        // Xoay hình ảnh - Rotate image
+                                        // The following: https://helpex.vn/question/android-xoay-hinh-anh-trong-che-do-xem-anh-theo-mot-goc-6094e25af45eca37f4c0d40a
+//                                        matrix.postRotate(90F)
+                                        val image: Bitmap =
+                                            BitmapFactory.decodeByteArray(
+                                                decodedBytes,
+                                                0,
+                                                decodedBytes.size,
+                                            )
+
+//                                        val rotated = Bitmap.createBitmap(
+//                                            image, 0, 0, image.getWidth(), image.getHeight(),
+//                                            matrix, true
+//                                        )
+                                        runOnUiThread {
+                                            tv_data.text = jsonData.mes
+                                            iv_data.setImageBitmap(image)
+                                        }
+                                    } else {
+                                        runOnUiThread {
+                                            tv_data.text = jsonData.mes
+                                        }
+                                    }
+
+                                } catch (e: Exception) {
+                                    Log.d("duc", "jsonData no")
+                                    runOnUiThread {
+                                        tv_data.text = "Không thành công!"
+                                    }
+
+                                }
+                                //After read [result], set [result] empty
+                                //Sau khi đọc xong hết dữ liệu thì result sẽ trở về rỗng.
+                                result = ""
+                            }
+
+                        } else {
+                            sendResult(jsonPacket.id, false)
+                        }
+
+
+                    } catch (e: Exception) {
+
+                        /**
+                         * Dành cho BÊN GỬI
+                         * ----------------
+                         * For SENDER
+                         * */
+                        try {
+
+                            val jsonResult: JsonResult? = fromJsonResult(readMessage)
+                            Log.d("duc", "jsonResult: ${jsonResult!!.id}")
+                            Log.d("duc", "jsonResult: ${jsonResult.result}")
+                            /** (2) */
+                            if (jsonResult.result) {
+                                id++
+                                if (id < sum) {
+                                    sendData()
+                                } else {
+                                    id = 0
+                                    sum = 0
+                                    content = null
+                                    result = ""
+                                }
+                            } else {
+                                sendData()
+                            }
+
+                        } catch (e: Exception) {
+                            Log.d("duc", "jsonData no")
+                            runOnUiThread {
+                                tv_name.visibility = View.VISIBLE
+                                tv_name.text = "$e"
+                            }
+                        }
+                    }
                 }
 //                MESSAGE_DEVICE_NAME -> {
 //                    // save the connected device's name

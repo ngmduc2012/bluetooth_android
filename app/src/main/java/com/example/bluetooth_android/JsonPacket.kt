@@ -6,14 +6,15 @@ import com.beust.klaxon.Klaxon
 private val klaxon = Klaxon()
 
 class JsonPacket(
-    val number: Int,
+    val sum: Int,
     val id: Int,
     val content: String,
+    val hash: String,
 ) {
 
-    public fun toJson() = klaxon.toJsonString(this)
+    public fun toJsonPacket() = klaxon.toJsonString(this)
 
     companion object {
-        public fun fromJson(json: String) = klaxon.parse<JSONData>(json)
+        public fun fromJsonPacket(json: String) = klaxon.parse<JsonPacket>(json)
     }
 }
