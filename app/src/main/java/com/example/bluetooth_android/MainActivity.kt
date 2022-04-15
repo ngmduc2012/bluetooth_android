@@ -4,10 +4,9 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothServerSocket
-import android.bluetooth.BluetoothSocket
+import android.app.Application
+import android.bluetooth.*
+import android.bluetooth.le.*
 import android.content.*
 import android.content.ContentValues.TAG
 import android.content.pm.PackageManager
@@ -22,64 +21,19 @@ import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.bluetooth_android.JSONData.Companion.fromJsonData
-import com.example.bluetooth_android.JsonPacket.Companion.fromJsonPacket
-import com.example.bluetooth_android.JsonResult.Companion.fromJsonResult
-import java.io.*
-import java.math.BigInteger
-import java.security.MessageDigest
+import com.example.bluetooth_android.adapter.ListDeviceAdapter
+import com.example.bluetooth_android.modle.JSONData
+import com.example.bluetooth_android.modle.JSONData.Companion.fromJsonData
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 
 class MainActivity : AppCompatActivity() {
 
-    /**
-     * Using for the permission initialization: Enable bluetooth, discoverable bluetooth, location
-     * (using for discover other device that opened discoverable bluetooth)
-     * ------------------------------------------------------------------------------------------------
-     * Dùng để khởi tạo các quyền truy cập: Bật bluetooth, hiển thị bluetooth với các thiết bị,
-     * khởi tạo vị trí (sử dụng để tìm kiếm thiết bị đang bật bluetooth)
-     */
-    private val REQUEST_ENABLE_BT = 0
-    private val REQUEST_DISCOVERABLE_BT = 1
-    private val LOCATION_REQUEST = 2
-
-    /**
-     * Using for the status initialization: Read message, Write message, show toast
-     * ------------------------------------------------------------------------------------------------
-     * Dùng để khởi tạo các trạng thái: Đọc thông tin nhận, và viết ra thông tin cần gửi, hiển thị
-     * thông báo toast
-     */
-    private val MESSAGE_READ = 3
-    private val MESSAGE_WRITE = 4
-    private val MESSAGE_TOAST = 5
-    val TOAST = "toast"
-
-    /**
-     * Declare status: Accept, Connect, Connected
-     * ---------------------------------------------------------------------------------------------
-     * Khai báo trạng thái: Cho phép truy cập, Kết nối và đã kết nối.
-     */
-    private var mSecureAcceptThread: AcceptThread? = null
-    private var mConnectThread: ConnectThread? = null
-    private var mConnectedThread: ConnectedThread? = null
-
-
-    /**
-     * Using for the initialization that is type of bluetooth connection: This is SECURE
-     * ---------------------------------------------------------------------------------------------
-     * Dùng để khởi tạo loại bluetooth sẽ kết nối: Loại bluetooth được sử dụng là dạng bảo mật.
-     */
-    private val NAME_SECURE = "BluetoothChatSecure"
-
-    /**
-     * Random UUID is born, UUID is as same as the port in http
-     * ---------------------------------------------------------------------------------------------
-     * UUID được sinh ngẫu nhiên, UUID là đối số giống như port trong http
-     */
-    private val MY_UUID_SECURE = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66")
 
     // Khai báo bluetooth adapter (Kết nối với bluetooth phần cứng).
     /**
@@ -87,13 +41,29 @@ class MainActivity : AppCompatActivity() {
      * ---------------------------------------------------------------------------------------------
      * Khai báo bluetooth adapter (Kết nối với bluetooth phần cứng).
      */
-    val mBluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private val mBluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private val bluetoothLeScanner = mBluetoothAdapter?.bluetoothLeScanner
+    private var scanning = false
+    private val handler = Handler()
+
+    // Stops scanning after 10 seconds.
+    private val SCAN_PERIOD: Long = 30000L
+    var bluetoothGatt: BluetoothGatt? = null
+
+//    private var bluetoothService: BluetoothLeService? = null
+    private var gatt: BluetoothGatt? = null
+    private var messageCharacteristic: BluetoothGattCharacteristic? = null
+    private var gattServer: BluetoothGattServer? = null
+
+    // LiveData for reporting the messages sent to the device
+    private val _messages = MutableLiveData<Message>()
+    val messages = _messages as LiveData<Message>
+
 
     //late init view, the following: https://stackoverflow.com/a/44285813/10621168
     private lateinit var btn_turn_on: Button
-    private lateinit var btn_visible: Button
-    private lateinit var btn_accept: Button
     private lateinit var btn_find: Button
+    private lateinit var btn_server: Button
     private lateinit var btn_disconnect: Button
     private lateinit var btn_send: Button
     private lateinit var btn_image: Button
@@ -115,12 +85,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         tv_no_blue = findViewById(R.id.tv_no_blue)
         btn_turn_on = findViewById(R.id.btn_turn_on)
-        btn_visible = findViewById(R.id.btn_visible)
-        btn_accept = findViewById(R.id.btn_accept)
-        btn_find = findViewById(R.id.btn_find)
+        btn_server = findViewById(R.id.btn_server)
         btn_disconnect = findViewById(R.id.btn_disconnect)
         btn_send = findViewById(R.id.btn_send)
         btn_image = findViewById(R.id.btn_image)
+        btn_find = findViewById(R.id.btn_find)
 
         list_device = findViewById(R.id.list_device)
         tv_name = findViewById(R.id.tv_name)
@@ -141,23 +110,436 @@ class MainActivity : AppCompatActivity() {
         // Click in item in recycle view, the following: https://stackoverflow.com/a/49480714/10621168
         listDeviceAdapter.onItemClick = { device ->
             // Start the thread to connect with the given device
-            mConnectThread = ConnectThread(device)
-            mConnectThread!!.start()
+            setCurrentChatConnection(device)
+//            bluetoothGatt = device.connectGatt(this, false, bluetoothGattCallback)
+//            mBluetoothAdapter?.let { adapter ->
+//                try {
+//                    adapter.getRemoteDevice(device.address)
+//
+//
+//                } catch (exception: IllegalArgumentException) {
+//                    Log.w(TAG, "Device not found with provided address.")
+//
+//                }
+//                // connect to the GATT server on the device
+//            } ?: run {
+//                Log.w(TAG, "BluetoothAdapter not initialized")
+//
+//            }
+
         }
+//        val gattServiceIntent = Intent(this, BluetoothLeService::class.java)
+//        bindService(gattServiceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
 
         onInitState()
 
         //click on button in kotlin, the following: https://stackoverflow.com/a/64187408/10621168
         btn_turn_on.setOnClickListener { onOffBluetooth() }
-        btn_visible.setOnClickListener { visibleDevice() }
-        btn_accept.setOnClickListener { acceptConnect() }
         btn_find.setOnClickListener { findDevice() }
-        btn_disconnect.setOnClickListener { disconnect() }
-        btn_send.setOnClickListener { sendStartData() }
+        btn_server.setOnClickListener { reloadServer() }
+        btn_disconnect.setOnClickListener { }
+        btn_send.setOnClickListener { sendData() }
         //get image from gallery, Lấy hình ảnh trong thư viện ảnh, the following: https://stackoverflow.com/a/55933725/10621168
         btn_image.setOnClickListener { checkPermissionForImage() }
 
     }
+
+    private fun reloadServer() {
+        stopServer()
+        startServer(application)
+        mState = STATE_TURN_ON
+        setState()
+        findDevice()
+    }
+
+
+    /** ============================================================================================= */
+
+    private fun sendData() {
+        val number = 20
+        val data = JSONData(et_data.text.toString(), encodedImage).toJsonData()
+        val count = if (data.length % number > 0) {
+            data.length / number
+        } else {
+            data.length / number - 1
+        }
+        Log.d(TAG, "data $data, count $count")
+        for (id in 0..count) {
+//            Log.d(
+//                TAG, "mess ${
+//                    data.substring(
+//                        id * number,
+//                        if (data.length < (id + 1) * number) data.length else (id + 1) * number
+//                    )
+//                }"
+//            )
+            sendMessage(
+                data.substring(
+                    id * number,
+                    if (data.length < (id + 1) * number) data.length else (id + 1) * number
+                )
+            )
+            TimeUnit.SECONDS.sleep(1L)
+            val percent: Double = id.toDouble()/count.toDouble()*100
+            Log.d(TAG, "percent $percent")
+            try {
+                runOnUiThread { tv_data.text = "$percent%" }
+            } catch (e: InterruptedException) {
+                Log.d(TAG, "e ${e.printStackTrace()}")
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun sendMessage(message: String): Boolean {
+        Log.d(TAG, "Send a message")
+
+        messageCharacteristic?.let { characteristic ->
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+
+            val messageBytes = message.toByteArray(Charsets.UTF_8)
+            characteristic.value = messageBytes
+            gatt?.let {
+                val success = it.writeCharacteristic(messageCharacteristic)
+                Log.d(TAG, "onServicesDiscovered: message send: $success")
+                if (success) {
+                    runOnUiThread {
+                        tv_data.text = success.toString()
+                    }
+
+//                    _messages.value = Message.LocalMessage(message)
+                }
+            } ?: run {
+                Log.d(TAG, "sendMessage: no gatt connection to send a message with")
+            }
+        }
+        return false
+    }
+
+
+    private lateinit var bluetoothManager: BluetoothManager
+
+    // BluetoothAdapter should never be null if the app is installed from the Play store
+    // since BLE is required per the <uses-feature> tag in the AndroidManifest.xml.
+    // If the app is installed on an emulator without bluetooth then the app will crash
+    // on launch since installing via Android Studio bypasses the <uses-feature> flags
+    private val adapter: BluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+
+    // LiveData for reporting the messages sent to the device
+    private val _requestEnableBluetooth = MutableLiveData<Boolean>()
+    private var gattServerCallback: BluetoothGattServerCallback? = null
+
+    private fun startServer(app: Application) {
+        bluetoothManager = app.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        if (!adapter.isEnabled) {
+            // prompt the user to enable bluetooth
+            _requestEnableBluetooth.value = true
+        } else {
+            _requestEnableBluetooth.value = false
+            //Cài đặt Gatt server
+            setupGattServer(app)
+            //Để Phảt hiện ra mắt cần truy cập
+            startAdvertisement()
+        }
+    }
+
+    private fun stopServer() {
+        stopAdvertising()
+    }
+
+    /**
+     * Stops BLE Advertising.
+     */
+    @SuppressLint("MissingPermission")
+    private fun stopAdvertising() {
+        Log.d(TAG, "Stopping Advertising with advertiser $advertiser")
+        advertiser?.stopAdvertising(advertiseCallback)
+        advertiseCallback = null
+    }
+
+
+    // Properties for current chat device connection
+    private var currentDevice: BluetoothDevice? = null
+    private fun setCurrentChatConnection(device: BluetoothDevice) {
+        currentDevice = device
+        connectToChatDevice(device)
+    }
+
+    private var gattClientCallback: BluetoothGattCallback? = null
+    private var gattClient: BluetoothGatt? = null
+
+    // hold reference to app context to run the chat server
+    private var app: Application? = null
+
+    @SuppressLint("MissingPermission")
+    private fun connectToChatDevice(device: BluetoothDevice) {
+        gattClientCallback = object : BluetoothGattCallback() {
+            @SuppressLint("MissingPermission", "SetTextI18n")
+            override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+                super.onConnectionStateChange(gatt, status, newState)
+                val isSuccess = status == BluetoothGatt.GATT_SUCCESS
+                val isConnected = newState == BluetoothProfile.STATE_CONNECTED
+                Log.d(
+                    TAG,
+                    "onConnectionStateChange: Client $gatt  success: $isSuccess connected: $isConnected"
+                )
+                // try to send a message to the other device as a test
+
+                if (isSuccess && isConnected) {
+                    // discover services
+                    gatt.discoverServices()
+
+                    runOnUiThread {
+                        mState = STATE_CONNECTED
+                        setState()
+                        tv_name.text = device.name + " " + device.address
+                        tv_name.visibility = View.VISIBLE
+                        // Stuff that updates the UI
+                    }
+                } else {
+                    runOnUiThread {
+                        mState = STATE_TURN_ON
+                        setState()
+                    }
+                }
+            }
+
+            override fun onServicesDiscovered(discoveredGatt: BluetoothGatt, status: Int) {
+                super.onServicesDiscovered(discoveredGatt, status)
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    Log.d(TAG, "onServicesDiscovered: Have gatt $discoveredGatt")
+                    gatt = discoveredGatt
+                    val service = discoveredGatt.getService(SERVICE_UUID)
+                    messageCharacteristic = service.getCharacteristic(MESSAGE_UUID)
+                }
+            }
+        }
+        gattClient = device.connectGatt(app, false, gattClientCallback)
+    }
+
+
+    /**
+     * Function to setup a local GATT server.
+     * This requires setting up the available services and characteristics that other devices
+     * can read and modify.
+     */
+    @SuppressLint("MissingPermission")
+    private fun setupGattServer(app: Application) {
+        gattServerCallback = object : BluetoothGattServerCallback() {
+            @SuppressLint("MissingPermission", "SetTextI18n")
+            override fun onConnectionStateChange(
+                device: BluetoothDevice,
+                status: Int,
+                newState: Int
+            ) {
+                super.onConnectionStateChange(device, status, newState)
+                val isSuccess = status == BluetoothGatt.GATT_SUCCESS
+                val isConnected = newState == BluetoothProfile.STATE_CONNECTED
+                Log.d(
+                    TAG,
+                    "onConnectionStateChange: Server $device ${device.name} success: $isSuccess connected: $isConnected"
+                )
+                if (isSuccess && isConnected) {
+                    runOnUiThread {
+                        mState = STATE_CONNECTED
+                        setState()
+                        tv_name.text = device.name + " " + device.address
+                        tv_name.visibility = View.VISIBLE
+                        // Stuff that updates the UI
+                    }
+                } else {
+                    runOnUiThread {
+                        mState = STATE_TURN_ON
+                        setState()
+                    }
+                }
+            }
+
+            @SuppressLint("MissingPermission")
+            override fun onCharacteristicWriteRequest(
+                device: BluetoothDevice,
+                requestId: Int,
+                characteristic: BluetoothGattCharacteristic,
+                preparedWrite: Boolean,
+                responseNeeded: Boolean,
+                offset: Int,
+                value: ByteArray?
+            ) {
+                super.onCharacteristicWriteRequest(
+                    device,
+                    requestId,
+                    characteristic,
+                    preparedWrite,
+                    responseNeeded,
+                    offset,
+                    value
+                )
+                if (characteristic.uuid == MESSAGE_UUID) {
+                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                    val message = value?.toString(Charsets.UTF_8)
+                    Log.d(TAG, "onCharacteristicWriteRequest: Have message: \"$message\"")
+                    runOnUiThread {
+                        tv_data.text = message.toString()
+                    }
+                    getDataFromMessage(message)
+                    message?.let {
+//                    _messages.postValue(RemoteMessage(it))
+                    }
+                }
+            }
+        }
+
+        gattServer = bluetoothManager.openGattServer(
+            app,
+            gattServerCallback
+        ).apply {
+            addService(setupGattService())
+        }
+    }
+
+    private var data = ""
+
+    @SuppressLint("NewApi")
+    fun getDataFromMessage(message: String?) {
+        data += message
+        if (message!!.contains("\"}")) {
+            val jsonData: JSONData? = fromJsonData(data)
+            Log.d(TAG, "jsonData: ${jsonData!!.mes}")
+            Log.d(TAG, "jsonData: ${jsonData.image}")
+            if (jsonData.image.length > 1) {
+                val decodedBytes =
+                    Base64.getDecoder().decode(jsonData.image)
+                val matrix = Matrix()
+
+                // Xoay hình ảnh - Rotate image
+                // The following: https://helpex.vn/question/android-xoay-hinh-anh-trong-che-do-xem-anh-theo-mot-goc-6094e25af45eca37f4c0d40a
+//                                        matrix.postRotate(90F)
+                val image: Bitmap =
+                    BitmapFactory.decodeByteArray(
+                        decodedBytes,
+                        0,
+                        decodedBytes.size,
+                    )
+
+//                                        val rotated = Bitmap.createBitmap(
+//                                            image, 0, 0, image.getWidth(), image.getHeight(),
+//                                            matrix, true
+//                                        )
+                runOnUiThread {
+                    tv_data.text = jsonData.mes
+                    iv_data.setImageBitmap(image)
+                }
+            } else {
+                runOnUiThread {
+                    tv_data.text = jsonData.mes
+                }
+            }
+            data = ""
+
+        }
+    }
+
+    /**
+     * Function to create the GATT Server with the required characteristics and descriptors
+     */
+    private fun setupGattService(): BluetoothGattService {
+        // Setup gatt service
+        val service =
+            BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
+        // need to ensure that the property is writable and has the write permission
+        val messageCharacteristic = BluetoothGattCharacteristic(
+            MESSAGE_UUID,
+            BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PERMISSION_WRITE
+        )
+        service.addCharacteristic(messageCharacteristic)
+        val confirmCharacteristic = BluetoothGattCharacteristic(
+            CONFIRM_UUID,
+            BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PERMISSION_WRITE
+        )
+        service.addCharacteristic(confirmCharacteristic)
+
+        return service
+    }
+
+    // This property will be null if bluetooth is not enabled or if advertising is not
+    // possible on the device
+    private var advertiser: BluetoothLeAdvertiser? = null
+    private var advertiseCallback: AdvertiseCallback? = null
+    private var advertiseSettings: AdvertiseSettings = buildAdvertiseSettings()
+    private var advertiseData: AdvertiseData = buildAdvertiseData()
+
+    /**
+     * Start advertising this device so other BLE devices can see it and connect
+     */
+    @SuppressLint("MissingPermission")
+    private fun startAdvertisement() {
+        advertiser = adapter.bluetoothLeAdvertiser
+        Log.d(TAG, "startAdvertisement: with advertiser $advertiser")
+
+        if (advertiseCallback == null) {
+            advertiseCallback = DeviceAdvertiseCallback()
+
+            advertiser?.startAdvertising(advertiseSettings, advertiseData, advertiseCallback)
+        }
+    }
+
+    /**
+     * Custom callback after Advertising succeeds or fails to start. Broadcasts the error code
+     * in an Intent to be picked up by AdvertiserFragment and stops this Service.
+     */
+    private class DeviceAdvertiseCallback : AdvertiseCallback() {
+        override fun onStartFailure(errorCode: Int) {
+            super.onStartFailure(errorCode)
+            // Send error state to display
+            val errorMessage = "Advertise failed with error: $errorCode"
+            Log.d(TAG, "Advertising failed")
+            //_viewState.value = DeviceScanViewState.Error(errorMessage)
+        }
+
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+            super.onStartSuccess(settingsInEffect)
+            Log.d(TAG, "Advertising successfully started")
+        }
+    }
+
+    /**
+     * Returns an AdvertiseSettings object set to use low power (to help preserve battery life)
+     * and disable the built-in timeout since this code uses its own timeout runnable.
+     */
+    private fun buildAdvertiseSettings(): AdvertiseSettings {
+        return AdvertiseSettings.Builder()
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_POWER)
+            .setTimeout(0)
+            .build()
+    }
+
+    /**
+     * Returns an AdvertiseData object which includes the Service UUID and Device Name.
+     */
+    private fun buildAdvertiseData(): AdvertiseData {
+        /**
+         * Note: There is a strict limit of 31 Bytes on packets sent over BLE Advertisements.
+         * This limit is outlined in section 2.3.1.1 of this document:
+         * https://inst.eecs.berkeley.edu/~ee290c/sp18/note/BLE_Vol6.pdf
+         *
+         * This limit includes everything put into AdvertiseData including UUIDs, device info, &
+         * arbitrary service or manufacturer data.
+         * Attempting to send packets over this limit will result in a failure with error code
+         * AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE. Catch this error in the
+         * onStartFailure() method of an AdvertiseCallback implementation.
+         */
+        val dataBuilder = AdvertiseData.Builder()
+            .addServiceUuid(ParcelUuid(SERVICE_UUID))
+            .setIncludeDeviceName(true)
+
+        /* For example - this will cause advertising to fail (exceeds size limit) */
+        //String failureData = "asdghkajsghalkxcjhfa;sghtalksjcfhalskfjhasldkjfhdskf";
+        //dataBuilder.addServiceData(Constants.Service_UUID, failureData.getBytes());
+        return dataBuilder.build()
+    }
+
 
     /**
      * ################################################################################################
@@ -205,10 +587,7 @@ class MainActivity : AppCompatActivity() {
      * (2). If [STATE_TURN_OFF] - Turning off bluetooth state, only show button turn on bluetooth
      * (3). If [STATE_TURN_ON] - Turning on bluetooth state, show button find device, list device,
      * button VISIBLE (function: discoverable for other device)
-     * (4). If [STATE_VISIBLE] - Discoverable state (other device is able to discover by bluetooth)
-     * show button ACCEPT (function: allow other device connects)
-     * (5). If [STATE_ACCEPT] - Allow accept state: Allow other device connect. No show more
-     * (6). If [STATE_CONNECTED] - Connected state: Show frame chat and button DISCONNECT (function:
+     * (4). If [STATE_CONNECTED] - Connected state: Show frame chat and button DISCONNECT (function:
      * disconnect with
      * ------------------------------------------------------------------------------------------------
      * Mô tả:
@@ -217,29 +596,22 @@ class MainActivity : AppCompatActivity() {
      * (2). Khi [STATE_TURN_OFF] - thiết bị đang tắt bluetooth, sẽ chỉ hiển thị nút bật bluetooth
      * (3). Khi [STATE_TURN_ON] - thiết bị đã bật bluetooth, sẽ hiển thị nút tìm kiếm thiết bị và danh sách
      *      thiết bị tìm kiếm, hiển thị nút VISIBLE (cho phép hiển thị với các thiết bị đang bật bluetooth)
-     * (4). Khi [STATE_VISIBLE] - thiết bị đã cho phép các thiết bị khác tìm thấy mình bằng bluetooth. Giao
-     *      diện sẽ hiển thị thêm nút ACCEPT để cho phép các thiết bị khác truy cập
-     * (5). Khi [STATE_ACCEPT] - thiết bị đã cho phép các thiết bị khác truy cập. Không hiển thị thêm giao diện
-     * (6). Khi [STATE_CONNECTED] - thiết bị đã kết nối với 1 thiết bị khác. Hiển thị khung chat và nút
+     * (4). Khi [STATE_CONNECTED] - thiết bị đã kết nối với 1 thiết bị khác. Hiển thị khung chat và nút
      *      DISCONNECT để ngắt kết nối.
      *################################################################################################
      */
     val STATE_NONE = 7
     val STATE_TURN_OFF = 8
     val STATE_TURN_ON = 9
-    val STATE_VISIBLE = 10
-    val STATE_ACCEPT = 11
     val STATE_CONNECTED = 12
     private var mState = STATE_NONE
-    fun setState() {
+    private fun setState() {
         /**(1)*/
         when (mState) {
             STATE_NONE -> {
                 pb_connecting.visibility = View.GONE
                 tv_no_blue.visibility = View.VISIBLE
                 btn_turn_on.visibility = View.GONE
-                btn_visible.visibility = View.GONE
-                btn_accept.visibility = View.GONE
                 btn_find.visibility = View.GONE
                 btn_disconnect.visibility = View.GONE
                 btn_send.visibility = View.GONE
@@ -255,8 +627,6 @@ class MainActivity : AppCompatActivity() {
                 pb_connecting.visibility = View.GONE
                 tv_no_blue.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
-                btn_visible.visibility = View.GONE
-                btn_accept.visibility = View.GONE
                 btn_find.visibility = View.GONE
                 btn_disconnect.visibility = View.GONE
                 btn_send.visibility = View.GONE
@@ -271,8 +641,6 @@ class MainActivity : AppCompatActivity() {
             STATE_TURN_ON -> {
                 pb_connecting.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
-                btn_visible.visibility = View.VISIBLE
-                btn_accept.visibility = View.GONE
                 btn_find.visibility = View.VISIBLE
                 btn_disconnect.visibility = View.GONE
                 btn_send.visibility = View.GONE
@@ -283,51 +651,11 @@ class MainActivity : AppCompatActivity() {
                 iv_data.visibility = View.GONE
                 btn_image.visibility = View.GONE
 
-                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
             }
             /**(4)*/
-            STATE_VISIBLE -> {
-                pb_connecting.visibility = View.GONE
-                btn_turn_on.visibility = View.VISIBLE
-                btn_visible.visibility = View.VISIBLE
-                btn_accept.visibility = View.VISIBLE
-                btn_find.visibility = View.VISIBLE
-                btn_disconnect.visibility = View.GONE
-                btn_send.visibility = View.GONE
-                list_device.visibility = View.VISIBLE
-                tv_name.visibility = View.GONE
-                tv_data.visibility = View.GONE
-                et_data.visibility = View.GONE
-                iv_data.visibility = View.GONE
-                btn_image.visibility = View.GONE
-
-                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
-            }
-            /**(5)*/
-            STATE_ACCEPT -> {
-                btn_turn_on.visibility = View.VISIBLE
-                btn_visible.visibility = View.VISIBLE
-                btn_accept.visibility = View.VISIBLE
-                btn_find.visibility = View.VISIBLE
-                btn_disconnect.visibility = View.GONE
-                btn_send.visibility = View.GONE
-                list_device.visibility = View.VISIBLE
-                tv_name.visibility = View.GONE
-                tv_data.visibility = View.GONE
-                et_data.visibility = View.GONE
-                iv_data.visibility = View.GONE
-                btn_image.visibility = View.GONE
-
-                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-            }
-            /**(6)*/
             STATE_CONNECTED -> {
                 pb_connecting.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
-                btn_visible.visibility = View.VISIBLE
-                btn_accept.visibility = View.VISIBLE
                 btn_find.visibility = View.VISIBLE
                 btn_disconnect.visibility = View.VISIBLE
                 btn_send.visibility = View.VISIBLE
@@ -338,12 +666,20 @@ class MainActivity : AppCompatActivity() {
                 iv_data.visibility = View.VISIBLE
                 btn_image.visibility = View.VISIBLE
 
-                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
             }
         }
     }
 
+    // Run the chat server as long as the app is on screen
+    override fun onStart() {
+        super.onStart()
+        startServer(application)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        stopServer()
+    }
 
     /**
      * ################################################################################################
@@ -371,7 +707,6 @@ class MainActivity : AppCompatActivity() {
         }
         /**(2)*/
         else {
-            disconnect()
             mBluetoothAdapter.disable()
             btn_turn_on.text = TURN_ON
             mState = STATE_TURN_OFF
@@ -379,28 +714,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * ################################################################################################
-     * FUNCTION   : Discoverable - Other device is able to see this device
-     * DESCRIPTION:
-     *
-     * Show dialog allow, if ok, change UI to [STATE_VISIBLE] state, else change UI to [STATE_TURN_ON]
-     * ------------------------------------------------------------------------------------------------
-     * CHỨC NĂNG: Cho phép hiển thị với các thiết bị khác.
-     * MÔ TẢ    :
-     *
-     * Hiển thị thông báo cho phép hiển thị, nếu đồng ý thì chuyển sang trạng thái [STATE_VISIBLE]
-     * nếu không đồng ý thì chuyển sang trạng thái [STATE_TURN_ON]
-     * ################################################################################################
-     */
-    @SuppressLint("MissingPermission")
-    fun visibleDevice() {
-        if (!mBluetoothAdapter!!.isDiscovering) {
-            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
-            startActivityForResult(enableBtIntent, REQUEST_DISCOVERABLE_BT)
-        }
-
-    }
 
     // Get result in dialog, the following: https://stackoverflow.com/a/10407371/10621168
     @SuppressLint("MissingPermission", "NewApi")
@@ -421,17 +734,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        /** The result for [visibleDevice]*/
-        if (requestCode == REQUEST_DISCOVERABLE_BT) {
-            if (resultCode == 120) {
-                mState = STATE_VISIBLE
-                setState()
-            }
-            if (resultCode == 0) {
-                mState = STATE_TURN_ON
-                setState()
-            }
-        }
 
         /** The result for [pickImageFromGallery] */
         if (resultCode == Activity.RESULT_OK && requestCode == IMAGE_PICK_CODE) {
@@ -439,256 +741,238 @@ class MainActivity : AppCompatActivity() {
             val resolver = applicationContext.contentResolver
             resolver.openInputStream(data?.data!!).use { stream ->
                 encodedImage = Base64.getEncoder().encodeToString(stream!!.readBytes())
-                Log.d("duc", "encodedImage: $encodedImage")
+                Log.d(TAG, "encodedImage: $encodedImage")
             }
 
         }
 
     }
 
-    /**
-     * ################################################################################################
-     * FUNCTION   : Allow other device is able to connect
-     * DESCRIPTION:
-     *
-     * Start [mSecureAcceptThread], allow connect form other device and change to [STATE_ACCEPT] state
-     * ------------------------------------------------------------------------------------------------
-     * CHỨC NĂNG: Cho phép các thiết bị khác kết nối.
-     * MÔ TẢ    :
-     *
-     * Bật luồng cho phép các thiết bị khác kết nối dưới dạng bảo mật và chuyển trạng thái thành
-     * [STATE_ACCEPT]
-     * ################################################################################################
-     */
-    private fun acceptConnect() {
-        if (mSecureAcceptThread == null) {
-            mSecureAcceptThread = AcceptThread(true)
-            mSecureAcceptThread!!.start()
 
-            mState = STATE_ACCEPT
-            setState()
-        }
+    /**
+     * Return a List of [ScanFilter] objects to filter by Service UUID.
+     */
+    private fun buildScanFilters(): List<ScanFilter> {
+        val builder = ScanFilter.Builder()
+        // Comment out the below line to see all BLE devices around you
+        // UUID LÀ UUID CỦA RIÊNG APP NÀY, chỉ có 2 thiết bị cùng UUID (tức là sử dụng ứng dụng này) thì mới tìm được nhau.
+        builder.setServiceUuid(ParcelUuid(SERVICE_UUID))
+        val filter = builder.build()
+        return listOf(filter)
     }
 
     /**
-     * ################################################################################################
-     * FUNCTION   : Find other device that is turning on bluetooth.
-     * DESCRIPTION:
-     *
-     * (1) Status of finding all device nearby:
-     *  *  Open location permission (Discover other device)
-     *  *  If in discovering state, using [receiver] for finding, result devices is saved in [listDevice]
-     *  (Note: [receiver] takes a lot of the Bluetooth adapter's resources, turn off if necessary
-     * (2) Found paired devices and show in list
-     * ------------------------------------------------------------------------------------------------
-     * CHỨC NĂNG: Tìm kiếm các thiết bị bật bluetooth xung quanh hoặc đã từng kết nối.
-     * MÔ TẢ    :
-     *
-     * (1) Trạng thái tìm kiếm tất cả các thiết bị gần đấy:
-     *  *  Bật quyền truy cập vị trí (dùng để tìm các thết bị khác)
-     *  *  Nếu đang ở trạng thái hiển thị với các thiết bị khác thì bắt đầu tìm kiếm bằng biển
-     *  [receiver], kết quả được lưu vào [listDevice]. (Chú ý: [receiver] tốn tài nguyên, tắt khi không
-     *  cần thiết. ([onDestroy])
-     * (2) Tìm kiếm thiết bị đã từng kết nối và hiển thị ra màng hình ([pairedDevices])
-     * ################################################################################################
+     * Return a [ScanSettings] object set to use low power (to preserve battery life).
      */
-    private val FIND_ALL = "FIND ALL"
-    private val FIND_PAIRED = "FIND PAIRED"
+    private fun buildScanSettings(): ScanSettings {
+        return ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
+            .build()
+    }
 
     @SuppressLint("MissingPermission", "NotifyDataSetChanged")
-    fun findDevice() {
-        /** (1) */
-        if (btn_find.text == FIND_ALL) {
-            btn_find.text = FIND_PAIRED
-            locationPermissionCheck()
-            if (mBluetoothAdapter!!.isEnabled && !mBluetoothAdapter.isDiscovering) {
-                // Register for broadcasts when a device is discovered.
-                listDevice.clear()
-                //Tham khảo/ The following: https://developer.android.com/guide/topics/connectivity/bluetooth/find-bluetooth-devices
-                val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
-                registerReceiver(receiver, filter)
-                mBluetoothAdapter.startDiscovery()
+    private fun findDevice() {
+        locationPermissionCheck()
+        listDevice.clear()
+        listDeviceAdapter.notifyDataSetChanged()
+        if (!scanning) { // Stops scanning after a pre-defined scan period.
+            handler.postDelayed({
+                scanning = false
+                bluetoothLeScanner?.stopScan(leScanCallback)
+                runOnUiThread {
+                    pb_connecting.visibility = View.GONE
+                }
+            }, SCAN_PERIOD)
+            scanning = true
+            runOnUiThread {
+                pb_connecting.visibility = View.VISIBLE
             }
-
+            // Tìm chính xác đến thiết bị có cùng UUID
+            bluetoothLeScanner?.startScan(buildScanFilters(), buildScanSettings(), leScanCallback)
+        } else {
+            scanning = false
+            runOnUiThread {
+                pb_connecting.visibility = View.GONE
+            }
+            bluetoothLeScanner?.stopScan(leScanCallback)
         }
-        /** (2) */
-        else {
-            btn_find.text = FIND_ALL
-            listDevice.clear()
+    }
 
-            val pairedDevices: Set<BluetoothDevice>? = mBluetoothAdapter?.bondedDevices
-            pairedDevices?.forEach { device ->
-                listDevice.add(device)
-            }
+//    private fun broadcastUpdate(action: String) {
+//        val intent = Intent(action)
+//        sendBroadcast(intent)
+//    }
+
+//    private val bluetoothGattCallback = object : BluetoothGattCallback() {
+//        @SuppressLint("MissingPermission")
+//        override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
+////            if (newState == BluetoothProfile.STATE_CONNECTED) {
+//                val isSuccess = status == BluetoothGatt.GATT_SUCCESS
+//                val isConnected = newState == BluetoothProfile.STATE_CONNECTED
+//                Log.d(TAG, "onConnectionStateChange: Client $gatt  success: $isSuccess connected: $isConnected")
+////
+//                // successfully connected to the GATT Server
+//                broadcastUpdate(ACTION_GATT_CONNECTED)
+////                connectionState = STATE_CONNECTED
+//                // Attempts to discover services after successful connection.
+//                bluetoothGatt?.discoverServices()
+//            if (isSuccess && isConnected) {
+//                runOnUiThread {
+//                    mState = STATE_CONNECTED
+//                    setState()
+//                    // Stuff that updates the UI
+//                }
+//            } else {
+//                                runOnUiThread {
+//                    mState = STATE_TURN_ON
+//                    setState()
+//                }
+//            }
+//            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+
+//                broadcastUpdate(ACTION_GATT_DISCONNECTED)
+////                connectionState = STATE_DISCONNECTED
+//                runOnUiThread {
+//                    mState = STATE_TURN_ON
+//                    setState()
+//                }
+    // disconnected from the GATT Server
+    // disconnected from the GATT Server
+//            }
+//        }
+//        override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+//            if (status == BluetoothGatt.GATT_SUCCESS) {
+////                broadcastUpdate(ACTION_GATT_SERVICES_DISCOVERED)
+//            } else {
+//                Log.w(TAG, "onServicesDiscovered received: $status")
+//            }
+//        }
+//        override fun onCharacteristicRead(
+//            gatt: BluetoothGatt,
+//            characteristic: BluetoothGattCharacteristic,
+//            status: Int
+//        ) {
+//            if (status == BluetoothGatt.GATT_SUCCESS) {
+//                broadcastUpdate(ACTION_DATA_AVAILABLE, characteristic)
+//            }
+//        }
+//        override fun onCharacteristicChanged(
+//            gatt: BluetoothGatt,
+//            characteristic: BluetoothGattCharacteristic
+//        ) {
+//            broadcastUpdate(ACTION_DATA_AVAILABLE, characteristic)
+//        }
+//    }
+
+    // Device scan callback.
+    private val leScanCallback: ScanCallback = object : ScanCallback() {
+        @SuppressLint("NotifyDataSetChanged")
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            super.onScanResult(callbackType, result)
+            Log.d(TAG, result.toString())
+            listDevice.add(result.device)
             listDeviceAdapter.notifyDataSetChanged()
         }
     }
 
-    private val receiver = object : BroadcastReceiver() {
-        @SuppressLint("MissingPermission", "NotifyDataSetChanged")
-        override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
-                BluetoothDevice.ACTION_FOUND -> {
-                    val device: BluetoothDevice =
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)!!
-                    listDevice.add(device)
-                    listDeviceAdapter.notifyDataSetChanged()
+    private val gattUpdateReceiver: BroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                ACTION_GATT_CONNECTED -> {
+//                    connected = true
+//                    updateConnectionState(R.string.connected)
+                    //Thay đổi trạng thái thành kết nối
+                }
+                ACTION_GATT_DISCONNECTED -> {
+//                    connected = false
+//                    updateConnectionState(R.string.disconnected)
+                    //Thay đổi trạng thánh thành không kết nối.
                 }
             }
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Don't forget to unregister the ACTION_FOUND receiver.
-        unregisterReceiver(receiver)
+//    private fun broadcastUpdate(action: String, characteristic: BluetoothGattCharacteristic) {
+//        val intent = Intent(action)
+//
+//        // This is special handling for the Heart Rate Measurement profile. Data
+//        // parsing is carried out as per profile specifications.
+//        when (characteristic.uuid) {
+//            UUID_HEART_RATE_MEASUREMENT -> {
+//                val flag = characteristic.properties
+//                val format = when (flag and 0x01) {
+//                    0x01 -> {
+//                        Log.d(TAG, "Heart rate format UINT16.")
+//                        BluetoothGattCharacteristic.FORMAT_UINT16
+//                    }
+//                    else -> {
+//                        Log.d(TAG, "Heart rate format UINT8.")
+//                        BluetoothGattCharacteristic.FORMAT_UINT8
+//                    }
+//                }
+//                val heartRate = characteristic.getIntValue(format, 1)
+//                Log.d(TAG, String.format("Received heart rate: %d", heartRate))
+//                intent.putExtra(EXTRA_DATA, (heartRate).toString())
+//            }
+//            else -> {
+//                // For all other profiles, writes the data formatted in HEX.
+//                val data: ByteArray? = characteristic.value
+//                if (data?.isNotEmpty() == true) {
+//                    val hexString: String = data.joinToString(separator = " ") {
+//                        String.format("%02X", it)
+//                    }
+//                    intent.putExtra(EXTRA_DATA, "$data\n$hexString")
+//                }
+//            }
+//        }
+//        sendBroadcast(intent)
+//    }
+
+    override fun onResume() {
+        super.onResume()
+        registerReceiver(gattUpdateReceiver, makeGattUpdateIntentFilter())
+//        if (bluetoothService != null) {
+            // dùng để tái kết nối sau khi quay lại .
+//            val result = bluetoothService!!.connect(deviceAddress)
+//            Log.d(TAG, "Connect request result=$result")
+//        }
     }
 
+    override fun onPause() {
+        super.onPause()
+        unregisterReceiver(gattUpdateReceiver)
+    }
 
-    /**
-     * ################################################################################################
-     * FUNCTION   : Handle data before send message.
-     * DESCRIPTION:
-     *
-     * (1) [content] The content of message: Get data in [et_data] and image (Base64String) in
-     * [encodedImage] into [JSONData] type, then change to String type and save in [content]
-     *  *  [number] the number of items will split and setup in a packet [JsonPacket], ~700 is the
-     * number that makes less mistakes.
-     *  *  [id] is the numbered packet order, start 0, Example: There are 10 packets ([sum]), [id]
-     * start from 0..9
-     * (2) [sum] is number of packets, = number of items in [content] / number of items in a packet
-     * [number], if there is a residual, add more 1 packet.
-     * (3) [sendData] Send message - FOR SENDER: data is split at [content] from [id] * [number] to
-     * ([id] + 1) * [number] or the end of [content], data will be packed into the packet [JsonPacket]
-     * include: [sum] number of packets, [id] the numbered packet order, the data that just split, (4)
-     * hash of data that just split (by MD5)
-     * (5) [sendResult] send result - FOR RECIPIENT: After getting data from SENDER, RECIPIENT will verify
-     * hash and add data [result], if success, return true, else, return false. Form result message
-     * [JsonResult] type, include: [id] the order of packet and result true or false.
-     * ------------------------------------------------------------------------------------------------
-     * CHỨC NĂNG: Xử lý dữ liệu cần truyền
-     * MÔ TẢ    :
-     *
-     * (1) [content] nội dung dữ liệu cần truyền: Lấy dữ liệu trong [et_data] và hình ảnh dạng base64String
-     * [encodedImage] thành json dạng [JSONData] sau đó chuyển thành String và lưu vào [content]
-     *  *  [number] số lượng phần tử trong [content] sẽ được cắt ra để truyền vào 1 gói tin dạng
-     * [JsonPacket], ~700 phẩn tử là số lượng truyền khó bị sảy ra sai sót.
-     *  *  [id] là thứ tự gói tin được đánh số bắt đầu từ 0, nếu có 10 gói tin ([sum]) thì [id] sẽ
-     *  chạy từ 0..9
-     * (2) [sum] là tổng số gói tin sẽ được truyền, = độ dài của [content] / số lượng phần tử trong 1 gói
-     * [number], nếu dư thì sẽ thêm 1 gói tin nữa.
-     * (3) [sendData] gửi dữ liệu đi - DÀNH CHO BÊN GỬI: dữ liệu sẽ được cắt từ [content] tại vị trí [id] * [number]
-     * đến vị trí ([id] + 1) * [number] hoặc vị trí cuối cùng của [content], dữ liệu sẽ được đóng gói
-     * vào gói tin [JsonPacket] bao gồm: [sum] tổng số gói tin sẽ truyền, [id] số thứ tự của gói tin
-     * đang được gửi đi, dữ liệu vừa cắt, (4) hàm băm MD5 của dữ liệu vừa được cắt.
-     * (5) [sendResult] gửi về kết quả - DÀNH CHO BÊN NHẬN: Sau khi nhận dữ liệu từ bên GỬI, bên NHẬN sẽ
-     * xác thực hàm băm và thêm dữ liệu vào [result], nếu thành công thì sẽ trả về kết quả thành công hoặc
-     * thất bại dưới dạng [JsonResult] gồm: [id] thứ tự gói gửi đi và kết quả true hoặc false
-     * ################################################################################################
-     */
-    var content: String? = null
-    var sum: Int = 0
-    var id = 0
-    var number = 700
-    var result: String = ""
-    private fun sendStartData() {
-
-        if (mConnectedThread != null) {
-            /** (1) */
-            val jsonData = JSONData("${et_data.text}", "$encodedImage")
-            content = jsonData.toJsonData()
-            id = 0
-            /** (2) */
-            sum = if (content!!.length % number > 0) {
-                (content!!.length / number + 1)
-            } else {
-                content!!.length / number
-            }
-            /** (3) */
-            sendData()
-
-
-        } else {
-            runOnUiThread {
-                tv_name.visibility = View.VISIBLE
-                tv_name.text = "There is no connected thread"
-            }
-//                Log.d("duc", "mConnectedThread == $mConnectedThread")
+    private fun makeGattUpdateIntentFilter(): IntentFilter? {
+        return IntentFilter().apply {
+            addAction(ACTION_GATT_CONNECTED)
+            addAction(ACTION_GATT_DISCONNECTED)
         }
     }
 
-    fun sendData() {
-        val data = content!!.substring(
-            id * number,
-            if (content!!.length < (id + 1) * number) content!!.length else (id + 1) * number
-        )
-        val jsonPacket = JsonPacket(
-            sum,
-            id,
-            data,
-            /** (4) */
-            md5(data)
-        )
-        mConnectedThread!!.write(jsonPacket.toJsonPacket().toByteArray())
-    }
 
-    // hash MD5, the following: https://stackoverflow.com/a/64171625/10621168
-    fun md5(input: String): String {
-        val md = MessageDigest.getInstance("MD5")
-        return BigInteger(1, md.digest(input.toByteArray())).toString(16).padStart(32, '0')
-    }
+    // Code to manage Service lifecycle.
+//    private val serviceConnection: ServiceConnection = object : ServiceConnection {
+//        override fun onServiceConnected(
+//            componentName: ComponentName,
+//            service: IBinder
+//        ) {
+//            bluetoothService = (service as BluetoothLeService.LocalBinder).getService()
+//            bluetoothService?.let { bluetooth ->
+//                if (!bluetooth.initialize()) {
+//                    Log.e(TAG, "Unable to initialize Bluetooth")
+//                    finish()
+//                }
+////                bluetooth.connect(deviceAddress)
+//                // call functions on service to check connection and connect to devices
+//            }
+//        }
+//
+//        override fun onServiceDisconnected(componentName: ComponentName) {
+//            bluetoothService = null
+//        }
+//    }
 
-    /** (5) */
-    fun sendResult(id: Int, result: Boolean) {
-        val jsonResult = JsonResult(id, result)
-        mConnectedThread!!.write(jsonResult.toJsonResult().toByteArray())
-    }
-
-
-    /**
-     * ################################################################################################
-     * FUNCTION   : Disconnect with connected device.
-     * DESCRIPTION:
-     *
-     * Close all connect thread (connect, accept, connected) then change to [STATE_VISIBLE] status,
-     * setup value for sent message to default.
-     * ------------------------------------------------------------------------------------------------
-     * CHỨC NĂNG: Ngắt kết nối với thiết bị đang được kết nối.
-     * MÔ TẢ    :
-     *
-     * Đóng các luồng kết nối và chuyển về trạng thái [STATE_VISIBLE], các biến để truyền dữ liệu đi sẽ
-     * được đưa về mặc định.
-     * ################################################################################################
-     */
-    private fun disconnect() {
-        if (mConnectThread != null) {
-            mConnectThread!!.cancel()
-            mConnectThread = null
-            Log.d("duc", "cancel mConnectThread")
-        }
-
-        if (mSecureAcceptThread != null) {
-            mSecureAcceptThread!!.cancel()
-            mSecureAcceptThread = null
-            Log.d("duc", "cancel mSecureAcceptThread")
-        }
-
-        if (mConnectedThread != null) {
-            mConnectedThread!!.cancel()
-            mConnectedThread = null
-            Log.d("duc", "cancel mConnectedThread")
-        }
-        id = 0
-        sum = 0
-        content = null
-        result = ""
-        encodedImage = ""
-
-        mState = STATE_VISIBLE
-        runOnUiThread {
-            setState()
-        }
-    }
 
     /**
      * ################################################################################################
@@ -773,409 +1057,68 @@ class MainActivity : AppCompatActivity() {
                 pickImageFromGallery()
             }
         }
+
     }
 
-    // Connect bluetooth, the following: https://developer.android.com/guide/topics/connectivity/bluetooth/connect-bluetooth-devices
-    @SuppressLint("MissingPermission")
-    private inner class AcceptThread(b: Boolean) : Thread() {
-        private val mmServerSocket: BluetoothServerSocket? by lazy(LazyThreadSafetyMode.NONE) {
-            mBluetoothAdapter?.listenUsingRfcommWithServiceRecord(NAME_SECURE, MY_UUID_SECURE)
-        }
+    // Demonstrates how to iterate through the supported GATT
+    // Services/Characteristics.
+    // In this sample, we populate the data structure that is bound to the
+    // ExpandableListView on the UI.
+//    private fun displayGattServices(gattServices: List<BluetoothGattService>?) {
+//        if (gattServices == null) return
+//        var uuid: String?
+//        val unknownServiceString: String = resources.getString(R.string.unknown_service)
+//        val unknownCharaString: String = resources.getString(R.string.unknown_characteristic)
+//        val gattServiceData: MutableList<HashMap<String, String>> = mutableListOf()
+//        val gattCharacteristicData: MutableList<ArrayList<HashMap<String, String>>> =
+//            mutableListOf()
+//        mGattCharacteristics = mutableListOf()
 
-        @SuppressLint("SetTextI18n")
-        override fun run() {
-            // Keep listening until exception occurs or a socket is returned.
-            var shouldLoop = true
-            while (shouldLoop) {
-                val socket: BluetoothSocket? = try {
-                    Log.d("duc", "mmServerSocket!!.accept()")
-                    //Run layout in the thread, the following: https://stackoverflow.com/a/14114546/10621168
-                    runOnUiThread {
-                        tv_name.visibility = View.VISIBLE
-                        tv_name.text = "Bắt đầu cho phép các thiết bị khác truy cập đến."
-                    }
-                    mmServerSocket!!.accept()
-                } catch (e: IOException) {
-                    shouldLoop = false
-                    runOnUiThread {
-                        tv_name.visibility = View.VISIBLE
-                        tv_name.text = "Socket's accept() method failed"
-                    }
-                    null
-                }
-                socket?.also {
-//                    manageMyConnectedSocket(it)
-                    mConnectedThread = ConnectedThread(it)
-                    mConnectedThread!!.start()
-                    mmServerSocket!!.close()
-                    shouldLoop = false
+    // Loops through available GATT Services.
+//        gattServices.forEach { gattService ->
+//            val currentServiceData = HashMap<String, String>()
+//            uuid = gattService.uuid.toString()
+//            currentServiceData[LIST_NAME] = SampleGattAttributes.lookup(uuid, unknownServiceString)
+//            currentServiceData[LIST_UUID] = uuid
+//            gattServiceData += currentServiceData
+//
+//            val gattCharacteristicGroupData: ArrayList<HashMap<String, String>> = arrayListOf()
+//            val gattCharacteristics = gattService.characteristics
+//            val charas: MutableList<BluetoothGattCharacteristic> = mutableListOf()
+//
+//            // Loops through available Characteristics.
+//            gattCharacteristics.forEach { gattCharacteristic ->
+//                charas += gattCharacteristic
+//                val currentCharaData: HashMap<String, String> = hashMapOf()
+//                uuid = gattCharacteristic.uuid.toString()
+//                currentCharaData[LIST_NAME] = SampleGattAttributes.lookup(uuid, unknownCharaString)
+//                currentCharaData[LIST_UUID] = uuid
+//                gattCharacteristicGroupData += currentCharaData
+//            }
+//            mGattCharacteristics += charas
+//            gattCharacteristicData += gattCharacteristicGroupData
+//        }
+//    }
 
-                    Log.d("duc", "mmServerSocket!!.close()")
-                    // Khi kết nối thành công.
-                    mState = STATE_CONNECTED
-                    runOnUiThread {
-                        setState()
-                        tv_name.text = "Connected to ${socket.remoteDevice.name}"
-                    }
-                }
-            }
-        }
-
-        // Closes the connect socket and causes the thread to finish.
-        @SuppressLint("SetTextI18n")
-        fun cancel() {
-            try {
-                mmServerSocket?.close()
-            } catch (e: IOException) {
-                runOnUiThread {
-                    tv_name.visibility = View.VISIBLE
-                    tv_name.text = "Could not close the connect socket"
-                }
-                Log.e(TAG, "Could not close the connect socket", e)
-            }
-        }
-    }
-    @SuppressLint("MissingPermission")
-    private inner class ConnectThread(device: BluetoothDevice) : Thread() {
-
-        private val mmSocket: BluetoothSocket? by lazy(LazyThreadSafetyMode.NONE) {
-            device.createRfcommSocketToServiceRecord(MY_UUID_SECURE)
-        }
-
-        @SuppressLint("SetTextI18n")
-        override fun run() {
-            // Cancel discovery because it otherwise slows down the connection.
-            mBluetoothAdapter?.cancelDiscovery()
-            runOnUiThread {
-                pb_connecting.visibility = View.VISIBLE
-            }
-            try {
-                mmSocket?.let { socket ->
-                    // Connect to the remote device through the socket. This call blocks
-                    // until it succeeds or throws an exception.
-                    socket.connect()
-
-                    // Start the thread to manage the connection and perform transmissions
-                    mConnectedThread = ConnectedThread(socket)
-                    mConnectedThread!!.start()
-
-                    mState = STATE_CONNECTED
-                    runOnUiThread {
-                        setState()
-                        tv_name.text = "Connect to ${mmSocket!!.remoteDevice.name}"
-                        pb_connecting.visibility = View.GONE
-                    }
-                }
-            } catch (e: IOException) {
-                runOnUiThread {
-                    tv_name.visibility = View.VISIBLE
-                    tv_name.text = "Can not connect ${mmSocket!!.remoteDevice.name} because $e"
-                    pb_connecting.visibility = View.GONE
-                }
-//                Log.e("duc", "Kết nối ko thành công do $e")
-
-                // Close the socket
-                try {
-                    mmSocket!!.close()
-                } catch (e2: IOException) {
-                    runOnUiThread {
-                        tv_name.visibility = View.VISIBLE
-                        tv_name.text =
-                            "unable to close() the security socket during connection failure"
-                    }
-                }
-            }
-        }
-
-        // Closes the client socket and causes the thread to finish.
-        fun cancel() {
-            try {
-                mmSocket?.close()
-            } catch (e: IOException) {
-                runOnUiThread {
-                    tv_name.visibility = View.VISIBLE
-                    tv_name.text = "Could not close the client socket $e"
-                    pb_connecting.visibility = View.GONE
-                }
-            }
-        }
-    }
-
-
-    // Transfer Bluetooth data, the following: https://developer.android.com/guide/topics/connectivity/bluetooth/transfer-data
-    private inner class ConnectedThread(private val mmSocket: BluetoothSocket) : Thread() {
-
-        private val mmInStream: InputStream = mmSocket.inputStream
-        private val mmOutStream: OutputStream = mmSocket.outputStream
-        private val mmBuffer: ByteArray = ByteArray(1024) // mmBuffer store for the stream
-
-        @SuppressLint("SetTextI18n")
-        override fun run() {
-            var numBytes: Int // bytes returned from read()
-
-            while (true) {
-                // Read from the InputStream.
-                try {
-                    Log.d("duc", "mmInStream: ${mmInStream}")
-                    numBytes = mmInStream.read(mmBuffer)
-                    mmInStream.available()
-                    // Send the obtained bytes to the UI activity.
-                    val readMsg = handler.obtainMessage(
-                        MESSAGE_READ, numBytes, -1,
-                        mmBuffer
-                    )
-                    readMsg.sendToTarget()
-                } catch (e: IOException) {
-                    runOnUiThread {
-                        tv_name.visibility = View.VISIBLE
-                        tv_name.text = "Input stream was disconnected $e"
-                    }
-                    Log.d(TAG, "Input stream was disconnected", e)
-                    break
-                }
-
-            }
-        }
-
-        // Call this from the main activity to send data to the remote device.
-        fun write(bytes: ByteArray) {
-            try {
-                mmOutStream.write(bytes)
-                // Share the sent message with the UI activity.
-                val writtenMsg = handler.obtainMessage(
-                    MESSAGE_WRITE, -1, -1, mmBuffer
-                )
-                writtenMsg.sendToTarget()
-//                Log.d("duc", "writtenMsg: ${writtenMsg.peekData()}")
-            } catch (e: IOException) {
-                Log.e(TAG, "Error occurred when sending data", e)
-                runOnUiThread {
-                    tv_name.visibility = View.VISIBLE
-                    tv_name.text = "Error occurred when sending data $e"
-                }
-                // Send a failure message back to the activity.
-                val writeErrorMsg = handler.obtainMessage(MESSAGE_TOAST)
-                val bundle = Bundle().apply {
-                    putString("toast", "Couldn't send data to the other device")
-                    Log.d("duc", "Couldn't send data to the other device")
-                }
-                writeErrorMsg.data = bundle
-                handler.sendMessage(writeErrorMsg)
-//                Log.d("duc", "writeErrorMsg.data: ${writeErrorMsg.data}")
-                return
-            }
-
-        }
-
-        // Call this method from the main activity to shut down the connection.
-        fun cancel() {
-            try {
-                mmSocket.close()
-            } catch (e: IOException) {
-                runOnUiThread {
-                    tv_name.visibility = View.VISIBLE
-                    tv_name.text = "Could not close the connect socket $e"
-                }
-                Log.e(TAG, "Could not close the connect socket", e)
-            }
-        }
-    }
-
-    /**
-     * The Handler that gets information back from the BluetoothChatService
-     */
-    private val handler: Handler = @SuppressLint("HandlerLeak")
-    object : Handler() {
-        @SuppressLint("NewApi", "SetTextI18n")
-        override fun handleMessage(msg: Message) {
-//            val activity: FragmentActivity = applicationContext
-            when (msg.what) {
-//                MESSAGE_STATE_CHANGE -> when (msg.arg1) {
-//                    BluetoothChatService.STATE_CONNECTED -> {
-//                        setStatus(getString(R.string.title_connected_to, mConnectedDeviceName))
-//                        mConversationArrayAdapter.clear()
-//                    }
-//                    BluetoothChatService.STATE_CONNECTING -> setStatus(R.string.title_connecting)
-//                    BluetoothChatService.STATE_LISTEN, BluetoothChatService.STATE_NONE -> setStatus(
-//                        R.string.title_not_connected
-//                    )
-//                }
-                MESSAGE_WRITE -> {
-                    val writeBuf = msg.obj as ByteArray
-                    // construct a string from the buffer
-                    val writeMessage = String(writeBuf)
-                }
-                /**
-                 * ################################################################################################
-                 * FUNCTION   : Handle message.
-                 * DESCRIPTION:
-                 *
-                 * Overview:
-                 * Because transmission the large data by bluetooth make a lot of mistakes, have to split into
-                 * small packets.
-                 * SENDER: Sending message by [JSONData] type, after change to String type, the data will be split
-                 * into packets ([JsonPacket] type), Be numbered and send at [sendStartData]
-                 * (1) RECIPIENT: After get data that is [JsonPacket] type, comparison data with hash (MD5), then
-                 * add data to [result] and send the result message [JsonResult]
-                 * (2) SENDER: Get the result message [JsonResult], if the result is success (true). Send next
-                 * packet with [id]++, else resend this packet.
-                 * (3) RECIPIENT: After get all packets ([id] +1 = [sum]), change [result] from String type to
-                 * [JSONData] read and show on UI.
-                 * ------------------------------------------------------------------------------------------------
-                 * CHỨC NĂNG: Xử lý dữ liệu cần truyền
-                 * MÔ TẢ    :
-                 *
-                 * Tổng quan:
-                 * Bởi vì khi truyền dữ liệu lớn bằng bluetooth sẽ gây ra sai sót, cần chia nhỏ thành các gói nhỏ.
-                 * BÊN GỬI: dữ liệu sẽ được tạo dưới dạng [JSONData] sau đó được chuyển thành String, dữ liệu sẽ
-                 * được cắt ra thành các gói dạng [JsonPacket], được đánh số và gửi đi. (tại [sendStartData])
-                 * (1) BÊN NHẬN: sau khi nhận được dữ liệu dạng [JsonPacket], sẽ tiến hành so sáng với hàm băm, sau đó
-                 * ghép thêm kết quả vào [result] và trả về thông điện kết quả dạng [JsonResult]
-                 * (2) BÊN GỬI: Nhận thông điệp kết quả [JsonResult], nếu gói đó truyền thành công thì sẽ truyền
-                 * tiếp gói tin tiếp theo [id]++, nếu không truyền lại gói tin vừa gửi.
-                 * (3) BÊN NHẬN: Sau khi nhận hết gói tin ([id] +1 = [sum]) thì sẽ chuyển dự liệu trong [result] thành
-                 * [JSONData] và hiển thị ảnh và dữ liệu ra ngoài màn hình.
-                 * ################################################################################################
-                 */
-                MESSAGE_READ -> {
-                    val readBuf = msg.obj as ByteArray
-                    // construct a string from the valid bytes in the buffer
-                    val readMessage = String(readBuf, 0, msg.arg1)
-                    Log.d("duc", "readMessage: $readMessage")
-
-                    /**
-                     * Dành cho BÊN NHẬN
-                     * -----------------
-                     * For RECIPIENT
-                     * */
-                    try {
-
-                        val jsonPacket: JsonPacket? = fromJsonPacket(readMessage)
-                        Log.d("duc", "jsonPacket: ${jsonPacket!!.content}")
-                        Log.d("duc", "jsonPacket: ${jsonPacket.hash}")
-                        Log.d("duc", "jsonPacket: ${jsonPacket.id}")
-                        Log.d("duc", "jsonPacket: ${jsonPacket.sum}")
-                        /** (1) */
-                        if (md5(jsonPacket.content) == jsonPacket.hash) {
-                            sendResult(jsonPacket.id, true)
-                            if (jsonPacket.id + 1 < jsonPacket.sum) {
-                                // Hiển thị % dữ liệu truyền được. - Show percent loading.
-                                // The following: https://www.baeldung.com/java-calculate-percentage
-                                result += jsonPacket.content
-                                val percent: Double =
-                                    (jsonPacket.id.toDouble() / jsonPacket.sum.toDouble()) * 100
-                                runOnUiThread {
-                                    tv_data.text = "${percent}%"
-                                }
-                            } else {
-                                result += jsonPacket.content
-                                try {
-                                    /** (3) */
-                                    val jsonData: JSONData? = fromJsonData(result)
-                                    Log.d("duc", "jsonData: ${jsonData!!.mes}")
-                                    Log.d("duc", "jsonData: ${jsonData.image}")
-
-                                    if (jsonData.image.length > 1) {
-                                        val decodedBytes =
-                                            Base64.getDecoder().decode(jsonData.image)
-                                        val matrix = Matrix()
-
-                                        // Xoay hình ảnh - Rotate image
-                                        // The following: https://helpex.vn/question/android-xoay-hinh-anh-trong-che-do-xem-anh-theo-mot-goc-6094e25af45eca37f4c0d40a
-//                                        matrix.postRotate(90F)
-                                        val image: Bitmap =
-                                            BitmapFactory.decodeByteArray(
-                                                decodedBytes,
-                                                0,
-                                                decodedBytes.size,
-                                            )
-
-//                                        val rotated = Bitmap.createBitmap(
-//                                            image, 0, 0, image.getWidth(), image.getHeight(),
-//                                            matrix, true
-//                                        )
-                                        runOnUiThread {
-                                            tv_data.text = jsonData.mes
-                                            iv_data.setImageBitmap(image)
-                                        }
-                                    } else {
-                                        runOnUiThread {
-                                            tv_data.text = jsonData.mes
-                                        }
-                                    }
-
-                                } catch (e: Exception) {
-                                    Log.d("duc", "jsonData no")
-                                    runOnUiThread {
-                                        tv_data.text = "Không thành công!"
-                                    }
-
-                                }
-                                //After read [result], set [result] empty
-                                //Sau khi đọc xong hết dữ liệu thì result sẽ trở về rỗng.
-                                result = ""
-                            }
-
-                        } else {
-                            sendResult(jsonPacket.id, false)
-                        }
-
-
-                    } catch (e: Exception) {
-
-                        /**
-                         * Dành cho BÊN GỬI
-                         * ----------------
-                         * For SENDER
-                         * */
-                        try {
-
-                            val jsonResult: JsonResult? = fromJsonResult(readMessage)
-                            Log.d("duc", "jsonResult: ${jsonResult!!.id}")
-                            Log.d("duc", "jsonResult: ${jsonResult.result}")
-                            /** (2) */
-                            if (jsonResult.result) {
-                                id++
-                                if (id < sum) {
-                                    sendData()
-                                } else {
-                                    id = 0
-                                    sum = 0
-                                    content = null
-                                    result = ""
-                                }
-                            } else {
-                                sendData()
-                            }
-
-                        } catch (e: Exception) {
-                            Log.d("duc", "jsonData no")
-                            runOnUiThread {
-                                tv_name.visibility = View.VISIBLE
-                                tv_name.text = "$e"
-                            }
-                        }
-                    }
-                }
-//                MESSAGE_DEVICE_NAME -> {
-//                    // save the connected device's name
-//                    mConnectedDeviceName = msg.data.getString(DEVICE_NAME)
-//                    if (null != activity) {
-//                        Toast.makeText(
-//                            activity, "Connected to "
-//                                    + mConnectedDeviceName, Toast.LENGTH_SHORT
-//                        ).show()
-//                    }
-//                }
-                MESSAGE_TOAST -> if (null != applicationContext) {
-                    Toast.makeText(
-                        applicationContext, msg.data.getString(TOAST),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-        }
-    }
+//    @SuppressLint("MissingPermission")
+//    fun setCharacteristicNotification(
+//        characteristic: BluetoothGattCharacteristic,
+//        enabled: Boolean
+//    ) {
+//        bluetoothGatt?.let { gatt ->
+//            gatt.setCharacteristicNotification(characteristic, enabled)
+//
+//            // This is specific to Heart Rate Measurement.
+//            if (UUID_HEART_RATE_MEASUREMENT == characteristic.uuid) {
+//                val descriptor =
+//                    characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+//                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+//                gatt.writeDescriptor(descriptor)
+//            }
+//        } ?: run {
+//            Log.w(TAG, "BluetoothGatt not initialized")
+//        }
+//    }
 
 
 }
