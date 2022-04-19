@@ -5,13 +5,13 @@ import com.beust.klaxon.Klaxon
 
 private val klaxon = Klaxon()
 
-data class JSONData (
+data class JSONData(
     val mes: String,
     val image: String,
 ) {
-    public fun toJsonData() = klaxon.toJsonString(this)
+    fun toJsonData() = klaxon.toJsonString(this)
 
     companion object {
-        public fun fromJsonData(json: String) = klaxon.parse<JSONData>(json)
+        fun fromJsonData(json: String) = klaxon.parse<JSONData>(json)
     }
 }
