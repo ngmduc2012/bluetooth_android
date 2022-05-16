@@ -73,6 +73,7 @@ class MainActivity : AppCompatActivity() {
      * Dùng để khởi tạo loại bluetooth sẽ kết nối: Loại bluetooth được sử dụng là dạng bảo mật.
      */
     private val NAME_SECURE = "BluetoothChatSecure"
+    private val NAME_INSECURE = "BluetoothChatInsecure"
 
     /**
      * Random UUID is born, UUID is as same as the port in http
@@ -80,6 +81,8 @@ class MainActivity : AppCompatActivity() {
      * UUID được sinh ngẫu nhiên, UUID là đối số giống như port trong http
      */
     private val MY_UUID_SECURE = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66")
+
+    private val MY_UUID_INSECURE = UUID.fromString("8ce255c0-200a-11e0-ac64-0800200c9a66")
 
     // Khai báo bluetooth adapter (Kết nối với bluetooth phần cứng).
     /**
@@ -779,7 +782,9 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission")
     private inner class AcceptThread(b: Boolean) : Thread() {
         private val mmServerSocket: BluetoothServerSocket? by lazy(LazyThreadSafetyMode.NONE) {
-            mBluetoothAdapter?.listenUsingRfcommWithServiceRecord(NAME_SECURE, MY_UUID_SECURE)
+//            mBluetoothAdapter?.listenUsingRfcommWithServiceRecord(NAME_SECURE, MY_UUID_SECURE)
+            mBluetoothAdapter?.listenUsingInsecureRfcommWithServiceRecord(
+                NAME_INSECURE, MY_UUID_INSECURE)
         }
 
         @SuppressLint("SetTextI18n")
@@ -839,7 +844,10 @@ class MainActivity : AppCompatActivity() {
     private inner class ConnectThread(device: BluetoothDevice) : Thread() {
 
         private val mmSocket: BluetoothSocket? by lazy(LazyThreadSafetyMode.NONE) {
-            device.createRfcommSocketToServiceRecord(MY_UUID_SECURE)
+//            device.createRfcommSocketToServiceRecord(MY_UUID_SECURE)
+            device.createInsecureRfcommSocketToServiceRecord(
+                MY_UUID_INSECURE
+            )
         }
 
         @SuppressLint("SetTextI18n")
