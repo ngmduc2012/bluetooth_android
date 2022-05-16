@@ -235,7 +235,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * Stop advertising this device so other BLE devices can NOT see it and connect
      * ------------------------------------------------------------------------------------------------
-     * Dừng quản bá (advertising) thiết bị để nhữn thiết bị sử dụng BLE khác KHÔNG thể tìm thấy
+     * Dừng quản bá (advertising) thiết bị để những thiết bị sử dụng BLE khác KHÔNG thể tìm thấy
      * và kết nối.
      */
     private fun stopServer() {
@@ -261,6 +261,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission")
     private fun setupGattServer(app: Application) {
         gattServerCallback = object : BluetoothGattServerCallback() {
+
             @SuppressLint("MissingPermission", "SetTextI18n")
             override fun onConnectionStateChange(
                 device: BluetoothDevice,
@@ -314,7 +315,7 @@ class MainActivity : AppCompatActivity() {
                     value
                 )
                 if (characteristic.uuid == MESSAGE_UUID) {
-                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, "ok".toByteArray(Charsets.UTF_8))
                     val message = value?.toString(Charsets.UTF_8)
                     Log.d(TAG, "onCharacteristicWriteRequest: Have message: \"$message\"")
                     runOnUiThread {
@@ -385,7 +386,7 @@ class MainActivity : AppCompatActivity() {
      * Mô tả kết nối và truyền dữ liệu:
      *
      * B1: Ấn nút Tìm kiếm [btn_find], lúc này [setupGattServer] và [startAdvertisement] đã được bật
-     * từ lúc bắt đầu chạy ứng dụng [onStart] (hoặc bật bluetooth [onOffBluetooth]). Trong đó,
+     * từ lúc bắt đầu chạy ứng dụng [onStart] (hoặc sau khi bật bluetooth [onOffBluetooth]). Trong đó,
      * [setupGattServer] cấu hình server và [startAdvertisement] giúp các thiết bị khác tìm thấy.
      * Danh sách tìm kiếm sẽ chứa các thiết bị sử dụng BLE và cùng các UUID được cài đặt trong
      * [setupGattServer].
@@ -416,7 +417,7 @@ class MainActivity : AppCompatActivity() {
                 )
                 // try to send a message to the other device as a test
                 runOnUiThread {
-                    tv_data.text = "Client $gatt  success: $isSuccess connected: $isConnected"
+                    tv_data.text = "Client ${gatt}  success: $isSuccess connected: $isConnected"
                     // Stuff that updates the UI
                 }
                 if (isSuccess && isConnected) {
@@ -453,7 +454,7 @@ class MainActivity : AppCompatActivity() {
 
     /** SENT/RECEIVE MESSAGE */
     /**
-     * The input data type is [JSONData]. It includesan image that is Base64String [encodedImage]
+     * The input data type is [JSONData]. It includes an image that is Base64String [encodedImage]
      * and the text input from the screen [et_data].
      * [sendData]: The data will be converted to String type and split into 20-character and
      * transmitted by [sendMessage] one by one every 1 second. (*)
@@ -556,7 +557,7 @@ class MainActivity : AppCompatActivity() {
             characteristic.value = messageBytes
             gattClient?.let {
                 val success = it.writeCharacteristic(messageCharacteristic)
-                Log.d(TAG, "onServicesDiscovered: message send: $success")
+                Log.d(TAG, "onServicesDiscovered: message send: ${success}")
                 if (success) {
                     runOnUiThread {
                         tv_data.text = "onServicesDiscovered: message send: $success"
