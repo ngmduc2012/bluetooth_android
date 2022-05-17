@@ -24,9 +24,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.bluetooth_android.JSONData.Companion.fromJsonData
-import com.example.bluetooth_android.JsonPacket.Companion.fromJsonPacket
-import com.example.bluetooth_android.JsonResult.Companion.fromJsonResult
+//import com.example.bluetooth_android.JSONData.Companion.fromJsonData
+//import com.example.bluetooth_android.JsonPacket.Companion.fromJsonPacket
+//import com.example.bluetooth_android.JsonResult.Companion.fromJsonResult
 import java.io.*
 import java.math.BigInteger
 import java.security.MessageDigest
@@ -106,6 +106,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var iv_data: ImageView
     private lateinit var et_data: EditText
     private lateinit var pb_connecting: ProgressBar
+    private lateinit var cb_secure: CheckBox
 
     private lateinit var list_device: RecyclerView
     var listDevice: ArrayList<BluetoothDevice> = ArrayList()
@@ -130,6 +131,7 @@ class MainActivity : AppCompatActivity() {
         tv_data = findViewById(R.id.tv_data)
         iv_data = findViewById(R.id.iv_data)
         et_data = findViewById(R.id.et_data)
+        cb_secure = findViewById(R.id.cb_secure)
 
         // Show dialog progress, the following: https://www.tutorialkart.com/kotlin-android/android-indeterminate-progressbar-kotlin-example/
         pb_connecting = findViewById(R.id.pb_connecting)
@@ -238,6 +240,8 @@ class MainActivity : AppCompatActivity() {
         /**(1)*/
         when (mState) {
             STATE_NONE -> {
+                cb_secure.isChecked = security
+                cb_secure.visibility = View.GONE
                 pb_connecting.visibility = View.GONE
                 tv_no_blue.visibility = View.VISIBLE
                 btn_turn_on.visibility = View.GONE
@@ -255,6 +259,8 @@ class MainActivity : AppCompatActivity() {
             }
             /**(2)*/
             STATE_TURN_OFF -> {
+                cb_secure.isChecked = security
+                cb_secure.visibility = View.GONE
                 pb_connecting.visibility = View.GONE
                 tv_no_blue.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
@@ -272,6 +278,8 @@ class MainActivity : AppCompatActivity() {
             }
             /**(3)*/
             STATE_TURN_ON -> {
+                cb_secure.isChecked = security
+                cb_secure.visibility = View.VISIBLE
                 pb_connecting.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.VISIBLE
@@ -290,6 +298,8 @@ class MainActivity : AppCompatActivity() {
             }
             /**(4)*/
             STATE_VISIBLE -> {
+                cb_secure.isChecked = security
+                cb_secure.visibility = View.GONE
                 pb_connecting.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.VISIBLE
@@ -309,6 +319,8 @@ class MainActivity : AppCompatActivity() {
             }
             /**(5)*/
             STATE_ACCEPT -> {
+                cb_secure.isChecked = security
+                cb_secure.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.VISIBLE
                 btn_accept.visibility = View.VISIBLE
@@ -327,6 +339,8 @@ class MainActivity : AppCompatActivity() {
             }
             /**(6)*/
             STATE_CONNECTED -> {
+                cb_secure.isChecked = security
+                cb_secure.visibility = View.GONE
                 pb_connecting.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.VISIBLE
@@ -379,6 +393,23 @@ class MainActivity : AppCompatActivity() {
             btn_turn_on.text = TURN_ON
             mState = STATE_TURN_OFF
             setState()
+        }
+    }
+
+    var security : Boolean = false
+    fun onCheckboxClicked(view: View) {
+        if (view is CheckBox) {
+            val checked: Boolean = view.isChecked
+            security = checked
+//            when (view.id) {
+//                R.id.cb_secure -> {
+//            if (checked) {
+//                // Put some meat on the sandwich
+//            } else {
+//                // Remove the meat
+//            }
+//                }
+//            }
         }
     }
 
@@ -548,67 +579,68 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    /**
-     * ################################################################################################
-     * FUNCTION   : Handle data before send message.
-     * DESCRIPTION:
-     *
-     * (1) [content] The content of message: Get data in [et_data] and image (Base64String) in
-     * [encodedImage] into [JSONData] type, then change to String type and save in [content]
-     *  *  [number] the number of items will split and setup in a packet [JsonPacket], ~700 is the
-     * number that makes less mistakes.
-     *  *  [id] is the numbered packet order, start 0, Example: There are 10 packets ([sum]), [id]
-     * start from 0..9
-     * (2) [sum] is number of packets, = number of items in [content] / number of items in a packet
-     * [number], if there is a residual, add more 1 packet.
-     * (3) [sendData] Send message - FOR SENDER: data is split at [content] from [id] * [number] to
-     * ([id] + 1) * [number] or the end of [content], data will be packed into the packet [JsonPacket]
-     * include: [sum] number of packets, [id] the numbered packet order, the data that just split, (4)
-     * hash of data that just split (by MD5)
-     * (5) [sendResult] send result - FOR RECIPIENT: After getting data from SENDER, RECIPIENT will verify
-     * hash and add data [result], if success, return true, else, return false. Form result message
-     * [JsonResult] type, include: [id] the order of packet and result true or false.
-     * ------------------------------------------------------------------------------------------------
-     * CHỨC NĂNG: Xử lý dữ liệu cần truyền
-     * MÔ TẢ    :
-     *
-     * (1) [content] nội dung dữ liệu cần truyền: Lấy dữ liệu trong [et_data] và hình ảnh dạng base64String
-     * [encodedImage] thành json dạng [JSONData] sau đó chuyển thành String và lưu vào [content]
-     *  *  [number] số lượng phần tử trong [content] sẽ được cắt ra để truyền vào 1 gói tin dạng
-     * [JsonPacket], ~700 phẩn tử là số lượng truyền khó bị sảy ra sai sót.
-     *  *  [id] là thứ tự gói tin được đánh số bắt đầu từ 0, nếu có 10 gói tin ([sum]) thì [id] sẽ
-     *  chạy từ 0..9
-     * (2) [sum] là tổng số gói tin sẽ được truyền, = độ dài của [content] / số lượng phần tử trong 1 gói
-     * [number], nếu dư thì sẽ thêm 1 gói tin nữa.
-     * (3) [sendData] gửi dữ liệu đi - DÀNH CHO BÊN GỬI: dữ liệu sẽ được cắt từ [content] tại vị trí [id] * [number]
-     * đến vị trí ([id] + 1) * [number] hoặc vị trí cuối cùng của [content], dữ liệu sẽ được đóng gói
-     * vào gói tin [JsonPacket] bao gồm: [sum] tổng số gói tin sẽ truyền, [id] số thứ tự của gói tin
-     * đang được gửi đi, dữ liệu vừa cắt, (4) hàm băm MD5 của dữ liệu vừa được cắt.
-     * (5) [sendResult] gửi về kết quả - DÀNH CHO BÊN NHẬN: Sau khi nhận dữ liệu từ bên GỬI, bên NHẬN sẽ
-     * xác thực hàm băm và thêm dữ liệu vào [result], nếu thành công thì sẽ trả về kết quả thành công hoặc
-     * thất bại dưới dạng [JsonResult] gồm: [id] thứ tự gói gửi đi và kết quả true hoặc false
-     * ################################################################################################
-     */
-    var content: String? = null
-    var sum: Int = 0
-    var id = 0
-    var number = 700
-    var result: String = ""
+//    /**
+//     * ################################################################################################
+//     * FUNCTION   : Handle data before send message.
+//     * DESCRIPTION:
+//     *
+//     * (1) [content] The content of message: Get data in [et_data] and image (Base64String) in
+//     * [encodedImage] into [JSONData] type, then change to String type and save in [content]
+//     *  *  [number] the number of items will split and setup in a packet [JsonPacket], ~700 is the
+//     * number that makes less mistakes.
+//     *  *  [id] is the numbered packet order, start 0, Example: There are 10 packets ([sum]), [id]
+//     * start from 0..9
+//     * (2) [sum] is number of packets, = number of items in [content] / number of items in a packet
+//     * [number], if there is a residual, add more 1 packet.
+//     * (3) [sendData] Send message - FOR SENDER: data is split at [content] from [id] * [number] to
+//     * ([id] + 1) * [number] or the end of [content], data will be packed into the packet [JsonPacket]
+//     * include: [sum] number of packets, [id] the numbered packet order, the data that just split, (4)
+//     * hash of data that just split (by MD5)
+//     * (5) [sendResult] send result - FOR RECIPIENT: After getting data from SENDER, RECIPIENT will verify
+//     * hash and add data [result], if success, return true, else, return false. Form result message
+//     * [JsonResult] type, include: [id] the order of packet and result true or false.
+//     * ------------------------------------------------------------------------------------------------
+//     * CHỨC NĂNG: Xử lý dữ liệu cần truyền
+//     * MÔ TẢ    :
+//     *
+//     * (1) [content] nội dung dữ liệu cần truyền: Lấy dữ liệu trong [et_data] và hình ảnh dạng base64String
+//     * [encodedImage] thành json dạng [JSONData] sau đó chuyển thành String và lưu vào [content]
+//     *  *  [number] số lượng phần tử trong [content] sẽ được cắt ra để truyền vào 1 gói tin dạng
+//     * [JsonPacket], ~700 phẩn tử là số lượng truyền khó bị sảy ra sai sót.
+//     *  *  [id] là thứ tự gói tin được đánh số bắt đầu từ 0, nếu có 10 gói tin ([sum]) thì [id] sẽ
+//     *  chạy từ 0..9
+//     * (2) [sum] là tổng số gói tin sẽ được truyền, = độ dài của [content] / số lượng phần tử trong 1 gói
+//     * [number], nếu dư thì sẽ thêm 1 gói tin nữa.
+//     * (3) [sendData] gửi dữ liệu đi - DÀNH CHO BÊN GỬI: dữ liệu sẽ được cắt từ [content] tại vị trí [id] * [number]
+//     * đến vị trí ([id] + 1) * [number] hoặc vị trí cuối cùng của [content], dữ liệu sẽ được đóng gói
+//     * vào gói tin [JsonPacket] bao gồm: [sum] tổng số gói tin sẽ truyền, [id] số thứ tự của gói tin
+//     * đang được gửi đi, dữ liệu vừa cắt, (4) hàm băm MD5 của dữ liệu vừa được cắt.
+//     * (5) [sendResult] gửi về kết quả - DÀNH CHO BÊN NHẬN: Sau khi nhận dữ liệu từ bên GỬI, bên NHẬN sẽ
+//     * xác thực hàm băm và thêm dữ liệu vào [result], nếu thành công thì sẽ trả về kết quả thành công hoặc
+//     * thất bại dưới dạng [JsonResult] gồm: [id] thứ tự gói gửi đi và kết quả true hoặc false
+//     * ################################################################################################
+//     */
+//    var content: String? = null
+//    var sum: Int = 0
+//    var id = 0
+//    var number = 700
+//    var result: String = ""
     private fun sendStartData() {
 
         if (mConnectedThread != null) {
-            /** (1) */
-            val jsonData = JSONData("${et_data.text}", "$encodedImage")
-            content = jsonData.toJsonData()
-            id = 0
-            /** (2) */
-            sum = if (content!!.length % number > 0) {
-                (content!!.length / number + 1)
-            } else {
-                content!!.length / number
-            }
-            /** (3) */
-            sendData()
+//            /** (1) */
+//            val jsonData = JSONData("${et_data.text}", "$encodedImage")
+//            content = jsonData.toJsonData()
+//            id = 0
+//            /** (2) */
+//            sum = if (content!!.length % number > 0) {
+//                (content!!.length / number + 1)
+//            } else {
+//                content!!.length / number
+//            }
+//            /** (3) */
+//            sendData()
+            mConnectedThread!!.write("${et_data.text}".toByteArray())
 
 
         } else {
@@ -620,32 +652,32 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun sendData() {
-        val data = content!!.substring(
-            id * number,
-            if (content!!.length < (id + 1) * number) content!!.length else (id + 1) * number
-        )
-        val jsonPacket = JsonPacket(
-            sum,
-            id,
-            data,
-            /** (4) */
-            md5(data)
-        )
-        mConnectedThread!!.write(jsonPacket.toJsonPacket().toByteArray())
-    }
+//    fun sendData() {
+//        val data = content!!.substring(
+//            id * number,
+//            if (content!!.length < (id + 1) * number) content!!.length else (id + 1) * number
+//        )
+//        val jsonPacket = JsonPacket(
+//            sum,
+//            id,
+//            data,
+//            /** (4) */
+//            md5(data)
+//        )
+//        mConnectedThread!!.write(jsonPacket.toJsonPacket().toByteArray())
+//    }
 
-    // hash MD5, the following: https://stackoverflow.com/a/64171625/10621168
-    fun md5(input: String): String {
-        val md = MessageDigest.getInstance("MD5")
-        return BigInteger(1, md.digest(input.toByteArray())).toString(16).padStart(32, '0')
-    }
+//    // hash MD5, the following: https://stackoverflow.com/a/64171625/10621168
+//    fun md5(input: String): String {
+//        val md = MessageDigest.getInstance("MD5")
+//        return BigInteger(1, md.digest(input.toByteArray())).toString(16).padStart(32, '0')
+//    }
 
-    /** (5) */
-    fun sendResult(id: Int, result: Boolean) {
-        val jsonResult = JsonResult(id, result)
-        mConnectedThread!!.write(jsonResult.toJsonResult().toByteArray())
-    }
+//    /** (5) */
+//    fun sendResult(id: Int, result: Boolean) {
+//        val jsonResult = JsonResult(id, result)
+//        mConnectedThread!!.write(jsonResult.toJsonResult().toByteArray())
+//    }
 
 
     /**
@@ -681,11 +713,12 @@ class MainActivity : AppCompatActivity() {
             mConnectedThread = null
             Log.d("duc", "cancel mConnectedThread")
         }
-        id = 0
-        sum = 0
-        content = null
-        result = ""
+//        id = 0
+//        sum = 0
+//        content = null
+//        result = ""
         encodedImage = ""
+        security = false
 
         mState = STATE_VISIBLE
         runOnUiThread {
@@ -782,9 +815,14 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission")
     private inner class AcceptThread(b: Boolean) : Thread() {
         private val mmServerSocket: BluetoothServerSocket? by lazy(LazyThreadSafetyMode.NONE) {
-//            mBluetoothAdapter?.listenUsingRfcommWithServiceRecord(NAME_SECURE, MY_UUID_SECURE)
-            mBluetoothAdapter?.listenUsingInsecureRfcommWithServiceRecord(
-                NAME_INSECURE, MY_UUID_INSECURE)
+            if(security){
+                mBluetoothAdapter?.listenUsingRfcommWithServiceRecord(NAME_SECURE, MY_UUID_SECURE)
+            } else {
+                mBluetoothAdapter?.listenUsingInsecureRfcommWithServiceRecord(
+                    NAME_INSECURE, MY_UUID_INSECURE
+                )
+            }
+
         }
 
         @SuppressLint("SetTextI18n")
@@ -840,14 +878,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
     @SuppressLint("MissingPermission")
     private inner class ConnectThread(device: BluetoothDevice) : Thread() {
 
         private val mmSocket: BluetoothSocket? by lazy(LazyThreadSafetyMode.NONE) {
-//            device.createRfcommSocketToServiceRecord(MY_UUID_SECURE)
-            device.createInsecureRfcommSocketToServiceRecord(
-                MY_UUID_INSECURE
-            )
+            if(security){
+                device.createRfcommSocketToServiceRecord(MY_UUID_SECURE)
+            } else {
+                device.createInsecureRfcommSocketToServiceRecord(
+                    MY_UUID_INSECURE
+                )
+            }
         }
 
         @SuppressLint("SetTextI18n")
@@ -1051,119 +1093,122 @@ class MainActivity : AppCompatActivity() {
                     val readMessage = String(readBuf, 0, msg.arg1)
                     Log.d("duc", "readMessage: $readMessage")
 
+                    runOnUiThread {
+                        tv_data.text = readMessage
+                    }
                     /**
                      * Dành cho BÊN NHẬN
                      * -----------------
                      * For RECIPIENT
                      * */
-                    try {
-
-                        val jsonPacket: JsonPacket? = fromJsonPacket(readMessage)
-                        Log.d("duc", "jsonPacket: ${jsonPacket!!.content}")
-                        Log.d("duc", "jsonPacket: ${jsonPacket.hash}")
-                        Log.d("duc", "jsonPacket: ${jsonPacket.id}")
-                        Log.d("duc", "jsonPacket: ${jsonPacket.sum}")
-                        /** (1) */
-                        if (md5(jsonPacket.content) == jsonPacket.hash) {
-                            sendResult(jsonPacket.id, true)
-                            if (jsonPacket.id + 1 < jsonPacket.sum) {
-                                // Hiển thị % dữ liệu truyền được. - Show percent loading.
-                                // The following: https://www.baeldung.com/java-calculate-percentage
-                                result += jsonPacket.content
-                                val percent: Double =
-                                    (jsonPacket.id.toDouble() / jsonPacket.sum.toDouble()) * 100
-                                runOnUiThread {
-                                    tv_data.text = "${percent}%"
-                                }
-                            } else {
-                                result += jsonPacket.content
-                                try {
-                                    /** (3) */
-                                    val jsonData: JSONData? = fromJsonData(result)
-                                    Log.d("duc", "jsonData: ${jsonData!!.mes}")
-                                    Log.d("duc", "jsonData: ${jsonData.image}")
-
-                                    if (jsonData.image.length > 1) {
-                                        val decodedBytes =
-                                            Base64.getDecoder().decode(jsonData.image)
-                                        val matrix = Matrix()
-
-                                        // Xoay hình ảnh - Rotate image
-                                        // The following: https://helpex.vn/question/android-xoay-hinh-anh-trong-che-do-xem-anh-theo-mot-goc-6094e25af45eca37f4c0d40a
-//                                        matrix.postRotate(90F)
-                                        val image: Bitmap =
-                                            BitmapFactory.decodeByteArray(
-                                                decodedBytes,
-                                                0,
-                                                decodedBytes.size,
-                                            )
-
-//                                        val rotated = Bitmap.createBitmap(
-//                                            image, 0, 0, image.getWidth(), image.getHeight(),
-//                                            matrix, true
-//                                        )
-                                        runOnUiThread {
-                                            tv_data.text = jsonData.mes
-                                            iv_data.setImageBitmap(image)
-                                        }
-                                    } else {
-                                        runOnUiThread {
-                                            tv_data.text = jsonData.mes
-                                        }
-                                    }
-
-                                } catch (e: Exception) {
-                                    Log.d("duc", "jsonData no")
-                                    runOnUiThread {
-                                        tv_data.text = "Không thành công!"
-                                    }
-
-                                }
-                                //After read [result], set [result] empty
-                                //Sau khi đọc xong hết dữ liệu thì result sẽ trở về rỗng.
-                                result = ""
-                            }
-
-                        } else {
-                            sendResult(jsonPacket.id, false)
-                        }
-
-
-                    } catch (e: Exception) {
-
-                        /**
-                         * Dành cho BÊN GỬI
-                         * ----------------
-                         * For SENDER
-                         * */
-                        try {
-
-                            val jsonResult: JsonResult? = fromJsonResult(readMessage)
-                            Log.d("duc", "jsonResult: ${jsonResult!!.id}")
-                            Log.d("duc", "jsonResult: ${jsonResult.result}")
-                            /** (2) */
-                            if (jsonResult.result) {
-                                id++
-                                if (id < sum) {
-                                    sendData()
-                                } else {
-                                    id = 0
-                                    sum = 0
-                                    content = null
-                                    result = ""
-                                }
-                            } else {
-                                sendData()
-                            }
-
-                        } catch (e: Exception) {
-                            Log.d("duc", "jsonData no")
-                            runOnUiThread {
-                                tv_name.visibility = View.VISIBLE
-                                tv_name.text = "$e"
-                            }
-                        }
-                    }
+//                    try {
+//
+//                        val jsonPacket: JsonPacket? = fromJsonPacket(readMessage)
+//                        Log.d("duc", "jsonPacket: ${jsonPacket!!.content}")
+//                        Log.d("duc", "jsonPacket: ${jsonPacket.hash}")
+//                        Log.d("duc", "jsonPacket: ${jsonPacket.id}")
+//                        Log.d("duc", "jsonPacket: ${jsonPacket.sum}")
+//                        /** (1) */
+//                        if (md5(jsonPacket.content) == jsonPacket.hash) {
+//                            sendResult(jsonPacket.id, true)
+//                            if (jsonPacket.id + 1 < jsonPacket.sum) {
+//                                // Hiển thị % dữ liệu truyền được. - Show percent loading.
+//                                // The following: https://www.baeldung.com/java-calculate-percentage
+//                                result += jsonPacket.content
+//                                val percent: Double =
+//                                    (jsonPacket.id.toDouble() / jsonPacket.sum.toDouble()) * 100
+//                                runOnUiThread {
+//                                    tv_data.text = "${percent}%"
+//                                }
+//                            } else {
+//                                result += jsonPacket.content
+//                                try {
+//                                    /** (3) */
+//                                    val jsonData: JSONData? = fromJsonData(result)
+//                                    Log.d("duc", "jsonData: ${jsonData!!.mes}")
+//                                    Log.d("duc", "jsonData: ${jsonData.image}")
+//
+//                                    if (jsonData.image.length > 1) {
+//                                        val decodedBytes =
+//                                            Base64.getDecoder().decode(jsonData.image)
+//                                        val matrix = Matrix()
+//
+//                                        // Xoay hình ảnh - Rotate image
+//                                        // The following: https://helpex.vn/question/android-xoay-hinh-anh-trong-che-do-xem-anh-theo-mot-goc-6094e25af45eca37f4c0d40a
+////                                        matrix.postRotate(90F)
+//                                        val image: Bitmap =
+//                                            BitmapFactory.decodeByteArray(
+//                                                decodedBytes,
+//                                                0,
+//                                                decodedBytes.size,
+//                                            )
+//
+////                                        val rotated = Bitmap.createBitmap(
+////                                            image, 0, 0, image.getWidth(), image.getHeight(),
+////                                            matrix, true
+////                                        )
+//                                        runOnUiThread {
+//                                            tv_data.text = jsonData.mes
+//                                            iv_data.setImageBitmap(image)
+//                                        }
+//                                    } else {
+//                                        runOnUiThread {
+//                                            tv_data.text = jsonData.mes
+//                                        }
+//                                    }
+//
+//                                } catch (e: Exception) {
+//                                    Log.d("duc", "jsonData no")
+//                                    runOnUiThread {
+//                                        tv_data.text = "Không thành công!"
+//                                    }
+//
+//                                }
+//                                //After read [result], set [result] empty
+//                                //Sau khi đọc xong hết dữ liệu thì result sẽ trở về rỗng.
+////                                result = ""
+//                            }
+//
+//                        } else {
+////                            sendResult(jsonPacket.id, false)
+//                        }
+//
+//
+//                    } catch (e: Exception) {
+//
+//                        /**
+//                         * Dành cho BÊN GỬI
+//                         * ----------------
+//                         * For SENDER
+//                         * */
+//                        try {
+//
+//                            val jsonResult: JsonResult? = fromJsonResult(readMessage)
+//                            Log.d("duc", "jsonResult: ${jsonResult!!.id}")
+//                            Log.d("duc", "jsonResult: ${jsonResult.result}")
+//                            /** (2) */
+//                            if (jsonResult.result) {
+//                                id++
+//                                if (id < sum) {
+//                                    sendData()
+//                                } else {
+//                                    id = 0
+//                                    sum = 0
+//                                    content = null
+//                                    result = ""
+//                                }
+//                            } else {
+//                                sendData()
+//                            }
+//
+//                        } catch (e: Exception) {
+//                            Log.d("duc", "jsonData no")
+//                            runOnUiThread {
+//                                tv_name.visibility = View.VISIBLE
+//                                tv_name.text = "$e"
+//                            }
+//                        }
+//                    }
                 }
 //                MESSAGE_DEVICE_NAME -> {
 //                    // save the connected device's name
