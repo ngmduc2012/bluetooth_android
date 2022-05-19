@@ -953,7 +953,8 @@ class MainActivity : AppCompatActivity() {
 
 
     // Transfer Bluetooth data, the following: https://developer.android.com/guide/topics/connectivity/bluetooth/transfer-data
-    private inner class ConnectedThread(private val mmSocket: BluetoothSocket) : Thread() {
+    private inner class ConnectedThread(private val mmSocket: BluetoothSocket) : Thread()
+    {
 
         private val mmInStream: InputStream = mmSocket.inputStream
         private val mmOutStream: OutputStream = mmSocket.outputStream
@@ -989,8 +990,10 @@ class MainActivity : AppCompatActivity() {
 
         // Call this from the main activity to send data to the remote device.
         fun write(bytes: ByteArray) {
+//            mmOutStream.write(bytes)
             try {
                 mmOutStream.write(bytes)
+//                Log.d("duc", "mmOutStream: ${String(bytes)}")
                 // Share the sent message with the UI activity.
                 val writtenMsg = handler.obtainMessage(
                     MESSAGE_WRITE, -1, -1, mmBuffer
@@ -1054,6 +1057,7 @@ class MainActivity : AppCompatActivity() {
                     val writeBuf = msg.obj as ByteArray
                     // construct a string from the buffer
                     val writeMessage = String(writeBuf)
+                    Log.d("duc", "writeMessage: $writeMessage")
                 }
                 /**
                  * ################################################################################################
