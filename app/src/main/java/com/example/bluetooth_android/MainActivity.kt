@@ -579,8 +579,8 @@ class MainActivity : AppCompatActivity() {
         if(messageCharacteristic == null )  Log.e(TAG, "sendMessage: NO messageCharacteristic")
         messageCharacteristic?.let { characteristic ->
             Log.e(TAG, "sendMessage: messageCharacteristic")
-            // WRITE_TYPE_NO_RESPONSE: sử dụng cho truyền thông điệp với IOS - IOS cần quyền đọc nên
-            // phải sử dụng kiểu triền không phản hồi lại thay vì WRITE_default
+            // WRITE_TYPE_NO_RESPONSE: Do IOS sử dụng .writeWithoutResponse nên phải sử dụng chung
+            // thể loại truyền. Ưu điểm của kiểu truyền này nhanh hơn WRITE_TYPE_DEFAULT
             // với IOS truyền được tối đa 182 ký tự.
             characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
 
