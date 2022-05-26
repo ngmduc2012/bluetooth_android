@@ -16,6 +16,8 @@
 
 package com.example.bluetooth_android
 
+import android.bluetooth.BluetoothGattCharacteristic
+import android.util.Log
 import java.util.*
 
 
@@ -37,15 +39,19 @@ import java.util.*
  */
 val SERVICE_UUID: UUID = UUID.fromString("0000b81d-0000-1000-8000-00805f9b34fb")
 
+val SERVICE_UUID_IOS: UUID = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb")
+
 /**
  * UUID for the message
  */
 val MESSAGE_UUID: UUID = UUID.fromString("7db3e235-3608-41f3-a03c-955fcbd2ea4b")
 
+val MESSAGE_UUID_IOS: UUID = UUID.fromString("89d3502b-0f36-433a-8ef4-c502ad55f8dc")
+
 /**
  * UUID to confirm device connection
  */
-val CONFIRM_UUID: UUID = UUID.fromString("36d4dc5c-814b-4097-a5a6-b93b39085928")
+//val CONFIRM_UUID: UUID = UUID.fromString("36d4dc5c-814b-4097-a5a6-b93b39085928")
 
 /**
  * Using for the permission initialization: Enable bluetooth, discoverable bluetooth, location
@@ -81,4 +87,5 @@ const val ACTION_GATT_CONNECTED =
     "com.example.bluetooth.le.ACTION_GATT_CONNECTED"
 const val ACTION_GATT_DISCONNECTED =
     "com.example.bluetooth.le.ACTION_GATT_DISCONNECTED"
+
 

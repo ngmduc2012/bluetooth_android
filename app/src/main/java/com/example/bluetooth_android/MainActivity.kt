@@ -10,8 +10,6 @@ import android.bluetooth.le.*
 import android.content.*
 import android.content.ContentValues.TAG
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.*
 import android.util.Log
 import android.view.View
@@ -24,9 +22,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.bluetooth_android.adapter.ListDeviceAdapter
 import com.example.bluetooth_android.modle.JSONData
-import com.example.bluetooth_android.modle.JSONData.Companion.fromJsonData
 import java.util.*
-import java.util.concurrent.TimeUnit
 
 
 class MainActivity : AppCompatActivity() {
@@ -95,7 +91,9 @@ class MainActivity : AppCompatActivity() {
         btn_disconnect.setOnClickListener { }
         btn_send.setOnClickListener { sendData() }
         //get image from gallery, Lấy hình ảnh trong thư viện ảnh, the following: https://stackoverflow.com/a/55933725/10621168
-        btn_image.setOnClickListener { checkPermissionForImage() }
+        btn_image.setOnClickListener {
+//            checkPermissionForImage()
+        }
 
     }
 
@@ -315,7 +313,13 @@ class MainActivity : AppCompatActivity() {
                     value
                 )
                 if (characteristic.uuid == MESSAGE_UUID) {
-                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, "ok".toByteArray(Charsets.UTF_8))
+                    gattServer?.sendResponse(
+                        device,
+                        requestId,
+                        BluetoothGatt.GATT_SUCCESS,
+                        0,
+                        "ok".toByteArray(Charsets.UTF_8)
+                    )
                     val message = value?.toString(Charsets.UTF_8)
                     Log.d(TAG, "onCharacteristicWriteRequest: Have message: \"$message\"")
                     runOnUiThread {
@@ -351,12 +355,12 @@ class MainActivity : AppCompatActivity() {
             BluetoothGattCharacteristic.PERMISSION_WRITE
         )
         service.addCharacteristic(messageCharacteristic)
-        val confirmCharacteristic = BluetoothGattCharacteristic(
-            CONFIRM_UUID,
-            BluetoothGattCharacteristic.PROPERTY_WRITE,
-            BluetoothGattCharacteristic.PERMISSION_WRITE
-        )
-        service.addCharacteristic(confirmCharacteristic)
+//        val confirmCharacteristic = BluetoothGattCharacteristic(
+//            CONFIRM_UUID,
+//            BluetoothGattCharacteristic.PROPERTY_WRITE,
+//            BluetoothGattCharacteristic.PERMISSION_WRITE
+//        )
+//        service.addCharacteristic(confirmCharacteristic)
 
         return service
     }
@@ -444,7 +448,17 @@ class MainActivity : AppCompatActivity() {
                     Log.d(TAG, "onServicesDiscovered: Have gatt $discoveredGatt")
                     gattClient = discoveredGatt
                     val service = discoveredGatt.getService(SERVICE_UUID)
-                    messageCharacteristic = service.getCharacteristic(MESSAGE_UUID)
+                    discoveredGatt.services.forEach{
+                        Log.e(TAG, "discoveredGatt: getService ${it.uuid}")
+                    }
+//                    service.characteristics.forEach{
+//                        Log.e(TAG, "service: characteristics ${it.uuid}")
+//                    }
+                    if (service != null) {
+                        messageCharacteristic = service.getCharacteristic(MESSAGE_UUID)
+                    } else {
+                        Log.e(TAG, "service: Have no getCharacteristic ${discoveredGatt.device.address}")
+                    }
                 }
             }
         }
@@ -474,74 +488,86 @@ class MainActivity : AppCompatActivity() {
      * đọc và in kết quả ra ngoài màn hình. (Cấu trúc JSON là {"a": "x"; "b":"y"} nên "} là kết thúc của
      * chuỗi String.
      * */
-    private var data = ""
+//    private var data = ""
 
     @SuppressLint("NewApi")
     fun getDataFromMessage(message: String?) {
-        data += message
-        if (message!!.contains("\"}")) {
-            val jsonData: JSONData? = fromJsonData(data)
-            Log.d(TAG, "jsonData: ${jsonData!!.mes}")
-            Log.d(TAG, "jsonData: ${jsonData.image}")
-            if (jsonData.image.length > 1) {
-                val decodedBytes =
-                    Base64.getDecoder().decode(jsonData.image)
-                val image: Bitmap =
-                    BitmapFactory.decodeByteArray(
-                        decodedBytes,
-                        0,
-                        decodedBytes.size,
-                    )
-                runOnUiThread {
-                    tv_data.text = jsonData.mes
-                    iv_data.setImageBitmap(image)
-                }
-            } else {
-                runOnUiThread {
-                    tv_data.text = jsonData.mes
-                }
-            }
-            data = ""
-
+//        data += message
+//        if (message!!.contains("\"}")) {
+//            val jsonData: JSONData? = fromJsonData(data)
+//            Log.d(TAG, "jsonData: ${jsonData!!.mes}")
+//            Log.d(TAG, "jsonData: ${jsonData.image}")
+//            if (jsonData.image.length > 1) {
+//                val decodedBytes =
+//                    Base64.getDecoder().decode(jsonData.image)
+//                val image: Bitmap =
+//                    BitmapFactory.decodeByteArray(
+//                        decodedBytes,
+//                        0,
+//                        decodedBytes.size,
+//                    )
+//                runOnUiThread {
+//                    tv_data.text = jsonData.mes
+//                    iv_data.setImageBitmap(image)
+//                }
+//            } else {
+//                runOnUiThread {
+//                    tv_data.text = jsonData.mes
+//                }
+//            }
+//            data = ""
+//
+//        }
+        runOnUiThread {
+            tv_data.text = message
         }
     }
 
     // văn bản ko được chứa  }"
-    @SuppressLint("SetTextI18n")
+    @SuppressLint("SetTextI18n", "MissingPermission")
     private fun sendData() {
-        val number = 20
-        val data = JSONData(et_data.text.toString(), encodedImage).toJsonData()
-        val count = if (data.length % number > 0) {
-            data.length / number
-        } else {
-            data.length / number - 1
-        }
-        Log.d(TAG, "data $data, count $count")
-        for (id in 0..count) {
-//            Log.d(
-//                TAG, "mess ${
-//                    data.substring(
-//                        id * number,
-//                        if (data.length < (id + 1) * number) data.length else (id + 1) * number
-//                    )
-//                }"
+//        val number = 20
+//        val data = JSONData(et_data.text.toString(), encodedImage).toJsonData()
+//        val count = if (data.length % number > 0) {
+//            data.length / number
+//        } else {
+//            data.length / number - 1
+//        }
+//        Log.d(TAG, "data $data, count $count")
+//        for (id in 0..count) {
+////            Log.d(
+////                TAG, "mess ${
+////                    data.substring(
+////                        id * number,
+////                        if (data.length < (id + 1) * number) data.length else (id + 1) * number
+////                    )
+////                }"
+////            )
+//            sendMessage(
+//                data.substring(
+//                    id * number,
+//                    if (data.length < (id + 1) * number) data.length else (id + 1) * number
+//                )
 //            )
-            sendMessage(
-                data.substring(
-                    id * number,
-                    if (data.length < (id + 1) * number) data.length else (id + 1) * number
-                )
-            )
-            /** (*) */
-            TimeUnit.SECONDS.sleep(1L)
-            val percent: Double = id.toDouble() / count.toDouble() * 100
-            Log.d(TAG, "percent $percent")
-            try {
-                runOnUiThread { tv_data.text = "$percent%" }
-            } catch (e: InterruptedException) {
-                Log.d(TAG, "e ${e.printStackTrace()}")
-            }
-        }
+//            /** (*) */
+//            TimeUnit.SECONDS.sleep(1L)
+//            val percent: Double = id.toDouble() / count.toDouble() * 100
+//            Log.d(TAG, "percent $percent")
+//            try {
+//                runOnUiThread { tv_data.text = "$percent%" }
+//            } catch (e: InterruptedException) {
+//                Log.d(TAG, "e ${e.printStackTrace()}")
+//            }
+//        }
+
+        sendMessage(et_data.text.toString())
+
+
+//        Log.i(TAG, "Value to be written is [" + et_data.text.toString() + "]")
+//        // c.setValue("U");
+//        // c.setValue("U");
+
+//        gattClient?.let { it.writeCharacteristic(messageCharacteristic)} ?: run {}
     }
 
     private var messageCharacteristic: BluetoothGattCharacteristic? = null
@@ -550,8 +576,13 @@ class MainActivity : AppCompatActivity() {
     fun sendMessage(message: String): Boolean {
         Log.d(TAG, "Send a message")
 
+        if(messageCharacteristic == null )  Log.e(TAG, "sendMessage: NO messageCharacteristic")
         messageCharacteristic?.let { characteristic ->
-            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            Log.e(TAG, "sendMessage: messageCharacteristic")
+            // WRITE_TYPE_NO_RESPONSE: sử dụng cho truyền thông điệp với IOS - IOS cần quyền đọc nên
+            // phải sử dụng kiểu triền không phản hồi lại thay vì WRITE_default
+            // với IOS truyền được tối đa 182 ký tự.
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
 
             val messageBytes = message.toByteArray(Charsets.UTF_8)
             characteristic.value = messageBytes
@@ -564,7 +595,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             } ?: run {
-                Log.d(TAG, "sendMessage: no gatt connection to send a message with")
+                Log.e(TAG, "sendMessage: no gatt connection to send a message with")
                 runOnUiThread {
                     tv_data.text = "sendMessage: no gatt connection to send a message with"
                 }
@@ -722,15 +753,15 @@ class MainActivity : AppCompatActivity() {
 
 
         /** The result for [pickImageFromGallery] */
-        if (resultCode == Activity.RESULT_OK && requestCode == IMAGE_PICK_CODE) {
-            iv_data.setImageURI(data?.data)
-            val resolver = applicationContext.contentResolver
-            resolver.openInputStream(data?.data!!).use { stream ->
-                encodedImage = Base64.getEncoder().encodeToString(stream!!.readBytes())
-                Log.d(TAG, "encodedImage: $encodedImage")
-            }
-
-        }
+//        if (resultCode == Activity.RESULT_OK && requestCode == IMAGE_PICK_CODE) {
+//            iv_data.setImageURI(data?.data)
+//            val resolver = applicationContext.contentResolver
+//            resolver.openInputStream(data?.data!!).use { stream ->
+//                encodedImage = Base64.getEncoder().encodeToString(stream!!.readBytes())
+//                Log.d(TAG, "encodedImage: $encodedImage")
+//            }
+//
+//        }
 
     }
 
@@ -847,26 +878,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     //function for requesting accept gallery permission
-    private val galleryPermissions = arrayOf(
-        Manifest.permission.READ_EXTERNAL_STORAGE,
-        Manifest.permission.WRITE_EXTERNAL_STORAGE
-    )
+//    private val galleryPermissions = arrayOf(
+//        Manifest.permission.READ_EXTERNAL_STORAGE,
+//        Manifest.permission.WRITE_EXTERNAL_STORAGE
+//    )
 
-    private fun checkPermissionForImage() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if ((checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED)
-                && (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED)
-            ) {
-                requestPermissions(
-                    galleryPermissions,
-                    PERMISSION_CODE_READ
-                )
-            } else {
-                pickImageFromGallery()
-            }
-        }
-
-    }
+//    private fun checkPermissionForImage() {
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+//            if ((checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED)
+//                && (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED)
+//            ) {
+//                requestPermissions(
+//                    galleryPermissions,
+//                    PERMISSION_CODE_READ
+//                )
+//            } else {
+//                pickImageFromGallery()
+//            }
+//        }
+//
+//    }
 
     /**
      * ################################################################################################
@@ -883,15 +914,15 @@ class MainActivity : AppCompatActivity() {
      * sau đó sẽ được truyền vào json để gửi đi ([JSONData]).
      * ################################################################################################
      */
-    var encodedImage: String = ""
-    private fun pickImageFromGallery() {
-        val intent = Intent(Intent.ACTION_PICK)
-        intent.type = "image/*"
-        startActivityForResult(
-            intent,
-            IMAGE_PICK_CODE
-        )
-    }
+//    var encodedImage: String = ""
+//    private fun pickImageFromGallery() {
+//        val intent = Intent(Intent.ACTION_PICK)
+//        intent.type = "image/*"
+//        startActivityForResult(
+//            intent,
+//            IMAGE_PICK_CODE
+//        )
+//    }
 
 
 }
