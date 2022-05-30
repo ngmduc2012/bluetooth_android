@@ -833,8 +833,14 @@ class MainActivity : AppCompatActivity() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
             Log.d(TAG, result.toString())
-            listDevice.add(result.device)
-            listDeviceAdapter.notifyDataSetChanged()
+            var isHad = false
+            listDevice.forEach{
+                if(it == result.device) isHad = true
+            }
+            if(!isHad){
+                listDevice.add(result.device)
+                listDeviceAdapter.notifyDataSetChanged()
+            }
         }
     }
 
