@@ -23,6 +23,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.bluetooth_android.adapter.ListDeviceAdapter
 import com.example.bluetooth_android.modle.JSONData
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 
 class MainActivity : AppCompatActivity() {
@@ -279,6 +280,10 @@ class MainActivity : AppCompatActivity() {
                     // Stuff that updates the UI
                 }
                 if (isSuccess && isConnected) {
+                    // *Tự động kết nối lại với thiết bị vừa kết nối - Phải đảm bảo rằng thiết bị kết nối đó phải bật GATT server
+                    // *+Auto connect to device that just connect to - Have to make sure that device is being turned on GATT server
+                    connectToChatDevice(device)
+//                    sendName()
                     runOnUiThread {
                         mState = STATE_CONNECTED
                         setState()
@@ -427,7 +432,7 @@ class MainActivity : AppCompatActivity() {
                 if (isSuccess && isConnected) {
                     // discover services
                     gatt.discoverServices()
-
+//                gattServer?.notifyCharacteristicChanged(device, messageCharacteristic, true)
                     runOnUiThread {
                         mState = STATE_CONNECTED
                         setState()
@@ -448,7 +453,7 @@ class MainActivity : AppCompatActivity() {
                     Log.d(TAG, "onServicesDiscovered: Have gatt $discoveredGatt")
                     gattClient = discoveredGatt
                     val service = discoveredGatt.getService(SERVICE_UUID)
-                    discoveredGatt.services.forEach{
+                    discoveredGatt.services.forEach {
                         Log.e(TAG, "discoveredGatt: getService ${it.uuid}")
                     }
 //                    service.characteristics.forEach{
@@ -456,8 +461,14 @@ class MainActivity : AppCompatActivity() {
 //                    }
                     if (service != null) {
                         messageCharacteristic = service.getCharacteristic(MESSAGE_UUID)
+                        // IOS không thể nhận diện khi thiết bị kết nối, nên sau khi kết nối sẽ truyền
+                        // tên của thiết bị android sang để IOS tự tìm và kết nối
+                        // ---
+                        // IOS can not recognize device connect to, so after connection, this device
+                        // will send name to IOS for discover and connection
+                        sendName()
                     } else {
-                        Log.e(TAG, "service: Have no getCharacteristic ${discoveredGatt.device.address}")
+                        Log.e(TAG, "service: Have no service ${discoveredGatt.device.address}")
                     }
                 }
             }
@@ -516,7 +527,6 @@ class MainActivity : AppCompatActivity() {
 //                }
 //            }
 //            data = ""
-//
 //        }
         runOnUiThread {
             tv_data.text = message
@@ -563,11 +573,60 @@ class MainActivity : AppCompatActivity() {
         sendMessage(et_data.text.toString())
 
 
-//        Log.i(TAG, "Value to be written is [" + et_data.text.toString() + "]")
-//        // c.setValue("U");
-//        // c.setValue("U");
+    }
 
-//        gattClient?.let { it.writeCharacteristic(messageCharacteristic)} ?: run {}
+    @SuppressLint("MissingPermission")
+    /** STATE OF DISPLAY */
+    /**
+     * ################################################################################################
+     * Title: Send name device to IOS
+     * Description:
+     * After connection, only send onetime, so split 19 characters of name device. Send them to IOS for
+     * discover and find the device that contain 19 characters of name.
+     * ------------------------------------------------------------------------------------------------
+     * Mô tả:
+     * Sau khi kết nối, chỉ có thể truyền thành công 1 lần duy nhất với 19 ký tự, nên tên thiết bị sẽ bị cắt
+     * lấy 19 ký tự đầu. 19 ký tự của tên thiết bị khi được truyền sang thiết bị IOS sẽ được lấy ra
+     * và tiến hành tìm hiếm thiết bị có chưa 19 ký tự đầu trùng khớp.
+     *################################################################################################
+     */
+    private fun sendName() {
+        val number = 19
+        val data =
+            if (mBluetoothAdapter != null) mBluetoothAdapter?.name + "akjs kjkjkj lkjl jl  dklj" else ""
+        val count = if (data.length % number > 0) {
+            data.length / number
+        } else {
+            data.length / number - 1
+        }
+        Log.d(TAG, "data $data, count $count")
+        for (id in 0..count) {
+//            Log.d(
+//                TAG, "mess ${
+//                    data.substring(
+//                        id * number,
+//                        if (data.length < (id + 1) * number) data.length else (id + 1) * number
+//                    )
+//                }"
+//            )
+            sendMessage(
+                "#" + data.substring(
+                    id * number,
+                    if (data.length < (id + 1) * number) data.length else (id + 1) * number
+                )
+            )
+            break // chỉ lấy lần lặp đầu tiên.
+
+            /** (*) */
+            TimeUnit.SECONDS.sleep(1L)
+            val percent: Double = id.toDouble() / count.toDouble() * 100
+            Log.d(TAG, "percent $percent")
+            try {
+                runOnUiThread { tv_data.text = "$percent%" }
+            } catch (e: InterruptedException) {
+                Log.d(TAG, "e ${e.printStackTrace()}")
+            }
+        }
     }
 
     private var messageCharacteristic: BluetoothGattCharacteristic? = null
@@ -576,7 +635,7 @@ class MainActivity : AppCompatActivity() {
     fun sendMessage(message: String): Boolean {
         Log.d(TAG, "Send a message")
 
-        if(messageCharacteristic == null )  Log.e(TAG, "sendMessage: NO messageCharacteristic")
+        if (messageCharacteristic == null) Log.e(TAG, "sendMessage: NO messageCharacteristic")
         messageCharacteristic?.let { characteristic ->
             Log.e(TAG, "sendMessage: messageCharacteristic")
             // WRITE_TYPE_NO_RESPONSE: Do IOS sử dụng .writeWithoutResponse nên phải sử dụng chung
@@ -588,10 +647,10 @@ class MainActivity : AppCompatActivity() {
             characteristic.value = messageBytes
             gattClient?.let {
                 val success = it.writeCharacteristic(messageCharacteristic)
-                Log.d(TAG, "onServicesDiscovered: message send: ${success}")
+                Log.d(TAG, "onServicesDiscovered - message send: ${success}")
                 if (success) {
                     runOnUiThread {
-                        tv_data.text = "onServicesDiscovered: message send: $success"
+                        tv_data.text = "onServicesDiscovered - message send: $success"
                     }
                 }
             } ?: run {
@@ -670,7 +729,7 @@ class MainActivity : AppCompatActivity() {
                 btn_send.visibility = View.GONE
                 list_device.visibility = View.VISIBLE
                 tv_name.visibility = View.GONE
-                tv_data.visibility = View.GONE
+                tv_data.visibility = View.VISIBLE
                 et_data.visibility = View.GONE
                 iv_data.visibility = View.GONE
                 btn_image.visibility = View.GONE
@@ -797,6 +856,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
     /**
      * Return a List of [ScanFilter] objects to filter by Service UUID [SERVICE_UUID]. That means they
      * have the same [SERVICE_UUID]
@@ -834,10 +894,10 @@ class MainActivity : AppCompatActivity() {
             super.onScanResult(callbackType, result)
             Log.d(TAG, result.toString())
             var isHad = false
-            listDevice.forEach{
-                if(it == result.device) isHad = true
+            listDevice.forEach {
+                if (it == result.device) isHad = true
             }
-            if(!isHad){
+            if (!isHad) {
                 listDevice.add(result.device)
                 listDeviceAdapter.notifyDataSetChanged()
             }
