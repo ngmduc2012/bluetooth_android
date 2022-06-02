@@ -593,7 +593,7 @@ class MainActivity : AppCompatActivity() {
     private fun sendName() {
         val number = 19
         val data =
-            if (mBluetoothAdapter != null) mBluetoothAdapter?.name + "akjs kjkjkj lkjl jl  dklj" else ""
+            if (mBluetoothAdapter != null) mBluetoothAdapter?.name  else ""
         val count = if (data.length % number > 0) {
             data.length / number
         } else {
