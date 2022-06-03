@@ -14,6 +14,8 @@ Blue_le:  Sử dụng bluetooth low energy để tạo 1 ứng dụng cho phép 
 Blue_le_autoconnect: Vì bluetooth low energy không tự kết nối ngược lại tới client, nên ở nhánh này sẽ 
 tạo thêm chức năng tự kết nối lại để thuận tiện cho giao tiếp 2 chiều. 
 
+Blue_dual_text: Trong nhánh này sẽ cho phép tạo kết nối đồng thời 2 loại bluetooth le và bluetooth class
+
 (CHÚ Ý: Ở nhánh Blue_le_text và Blue_le_autoconnect đã thêm chức năng kết nối với bluetooth IOS, tham 
 khảo tại https://github.com/ngmduc2012/bluetooth_le_ios.git)
 
@@ -31,6 +33,8 @@ Blue_le: Build an application read JSON string by Bluetooth low energy
 
 Blue_le_autoconnect: Because Using bluetooth low energy no support send message back to client, so in 
 this branch we add function auto connect again for 2-way communication. 
+
+Blue_dual_text: In this banch, The application is able to connect with both type bluetooth (Bluetooth low energy, Bluetooth classic) 
 
 (NOTE: In Blue_le_text and Blue_le_autoconnect is added connect with an application of IOS by bluetooth 
 low energy, the following: https://github.com/ngmduc2012/bluetooth_le_ios.git)
