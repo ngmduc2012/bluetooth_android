@@ -34,7 +34,7 @@ Blue_le: Build an application read JSON string by Bluetooth low energy
 Blue_le_autoconnect: Because Using bluetooth low energy no support send message back to client, so in 
 this branch we add function auto connect again for 2-way communication. 
 
-Blue_dual_text: In this banch, The application is able to connect with both type bluetooth (Bluetooth low energy, Bluetooth classic) 
+Blue_dual_text: In this banch, The application is able to connect with both types of bluetooth (Bluetooth low energy, Bluetooth classic) 
 
 (NOTE: In Blue_le_text and Blue_le_autoconnect is added connect with an application of IOS by bluetooth 
 low energy, the following: https://github.com/ngmduc2012/bluetooth_le_ios.git)
