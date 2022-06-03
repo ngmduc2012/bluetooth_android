@@ -23,13 +23,13 @@ khảo tại https://github.com/ngmduc2012/bluetooth_le_ios.git)
 
 Branch: 
 
-Master: Build an application read JSON string by Bluetooth class
+Master: Build an application reads JSON string by Bluetooth class
 
-Blue_class_text: Build an application read short string by Bluetooth class
+Blue_class_text: Build an application reads short string by Bluetooth class
 
-Blue_le_text: Build an application read short string by Bluetooth low energy
+Blue_le_text: Build an application reads short string by Bluetooth low energy
 
-Blue_le: Build an application read JSON string by Bluetooth low energy 
+Blue_le: Build an application reads JSON string by Bluetooth low energy 
 
 Blue_le_autoconnect: Because Using bluetooth low energy no support send message back to client, so in 
 this branch we add function auto connect again for 2-way communication. 
