@@ -1,19 +1,16 @@
 package com.example.bluetooth_android
 
+//import com.example.bluetooth_android.JSONData.Companion.fromJsonData
+//import com.example.bluetooth_android.JsonPacket.Companion.fromJsonPacket
+//import com.example.bluetooth_android.JsonResult.Companion.fromJsonResult
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothServerSocket
-import android.bluetooth.BluetoothSocket
+import android.bluetooth.*
 import android.content.*
 import android.content.ContentValues.TAG
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.os.*
 import android.util.Log
 import android.view.View
@@ -24,38 +21,14 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-//import com.example.bluetooth_android.JSONData.Companion.fromJsonData
-//import com.example.bluetooth_android.JsonPacket.Companion.fromJsonPacket
-//import com.example.bluetooth_android.JsonResult.Companion.fromJsonResult
+import com.example.bluetooth_android.adapter.ListDeviceAdapter
+import com.example.bluetooth_android.controller.BluetoothLE
+import com.example.bluetooth_android.controller.CallBack
 import java.io.*
-import java.math.BigInteger
-import java.security.MessageDigest
 import java.util.*
 
 
-class MainActivity : AppCompatActivity() {
-
-    /**
-     * Using for the permission initialization: Enable bluetooth, discoverable bluetooth, location
-     * (using for discover other device that opened discoverable bluetooth)
-     * ------------------------------------------------------------------------------------------------
-     * Dùng để khởi tạo các quyền truy cập: Bật bluetooth, hiển thị bluetooth với các thiết bị,
-     * khởi tạo vị trí (sử dụng để tìm kiếm thiết bị đang bật bluetooth)
-     */
-    private val REQUEST_ENABLE_BT = 0
-    private val REQUEST_DISCOVERABLE_BT = 1
-    private val LOCATION_REQUEST = 2
-
-    /**
-     * Using for the status initialization: Read message, Write message, show toast
-     * ------------------------------------------------------------------------------------------------
-     * Dùng để khởi tạo các trạng thái: Đọc thông tin nhận, và viết ra thông tin cần gửi, hiển thị
-     * thông báo toast
-     */
-    private val MESSAGE_READ = 3
-    private val MESSAGE_WRITE = 4
-    private val MESSAGE_TOAST = 5
-    val TOAST = "toast"
+class MainActivity : AppCompatActivity() , CallBack {
 
     /**
      * Declare status: Accept, Connect, Connected
@@ -67,23 +40,6 @@ class MainActivity : AppCompatActivity() {
     private var mConnectedThread: ConnectedThread? = null
 
 
-    /**
-     * Using for the initialization that is type of bluetooth connection: This is SECURE
-     * ---------------------------------------------------------------------------------------------
-     * Dùng để khởi tạo loại bluetooth sẽ kết nối: Loại bluetooth được sử dụng là dạng bảo mật.
-     */
-    private val NAME_SECURE = "BluetoothChatSecure"
-    private val NAME_INSECURE = "BluetoothChatInsecure"
-
-    /**
-     * Random UUID is born, UUID is as same as the port in http
-     * ---------------------------------------------------------------------------------------------
-     * UUID được sinh ngẫu nhiên, UUID là đối số giống như port trong http
-     */
-    private val MY_UUID_SECURE = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66")
-
-    private val MY_UUID_INSECURE = UUID.fromString("8ce255c0-200a-11e0-ac64-0800200c9a66")
-
     // Khai báo bluetooth adapter (Kết nối với bluetooth phần cứng).
     /**
      * Declare bluetooth adapter (Connect with the hardware)
@@ -91,6 +47,7 @@ class MainActivity : AppCompatActivity() {
      * Khai báo bluetooth adapter (Kết nối với bluetooth phần cứng).
      */
     val mBluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+
 
     //late init view, the following: https://stackoverflow.com/a/44285813/10621168
     private lateinit var btn_turn_on: Button
@@ -145,9 +102,25 @@ class MainActivity : AppCompatActivity() {
 
         // Click in item in recycle view, the following: https://stackoverflow.com/a/49480714/10621168
         listDeviceAdapter.onItemClick = { device ->
-            // Start the thread to connect with the given device
-            mConnectThread = ConnectThread(device)
-            mConnectThread!!.start()
+//            Log.d(TAG, "device.type: " + device.type)
+            typeDevice = device.type
+            if (device.type == DEVICE_TYPE_CLASSIC) {
+                // Start the thread to connect with the given device
+                mConnectThread = ConnectThread(device)
+                mConnectThread!!.start()
+                Toast.makeText(this@MainActivity, "Class bluetooth", Toast.LENGTH_SHORT).show()
+            } else if (device.type == DEVICE_TYPE_LE) {
+                Log.d(TAG, "messageCharacteristic: $messageCharacteristic")
+                BluetoothLE(this).connectToChatDevice(device, application, mBluetoothAdapter)
+                // Run connect bluetooth le
+                Toast.makeText(this@MainActivity, "LE bluetooth", Toast.LENGTH_SHORT).show()
+            } else if (device.type == DEVICE_TYPE_DUAL) {
+                mConnectThread = ConnectThread(device)
+                mConnectThread!!.start()
+                Toast.makeText(this@MainActivity, "Dual bluetooth", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Unknown bluetooth", Toast.LENGTH_SHORT).show()
+            }
         }
 
         onInitState()
@@ -158,11 +131,21 @@ class MainActivity : AppCompatActivity() {
         btn_accept.setOnClickListener { acceptConnect() }
         btn_find.setOnClickListener { findDevice() }
         btn_disconnect.setOnClickListener { disconnect() }
-        btn_send.setOnClickListener { sendStartData() }
+        btn_send.setOnClickListener {
+            Log.d(TAG, "typeDevice: $typeDevice")
+            if (typeDevice == DEVICE_TYPE_CLASSIC) {
+                sendStartData()
+            } else if (typeDevice == DEVICE_TYPE_LE) {
+                BluetoothLE(this).sendMessage(et_data.text.toString(), messageCharacteristic, gattClient)
+            } else if(typeDevice == DEVICE_TYPE_DUAL){
+                sendStartData()
+            }
+        }
         //get image from gallery, Lấy hình ảnh trong thư viện ảnh, the following: https://stackoverflow.com/a/55933725/10621168
         btn_image.setOnClickListener { checkPermissionForImage() }
 
     }
+
 
     /**
      * ################################################################################################
@@ -179,8 +162,6 @@ class MainActivity : AppCompatActivity() {
      * (3) Cài đặt trạng thái để hiển thị ra giao diện ngoài màn hình.
      * ################################################################################################
      */
-    private val TURN_ON = "TURN ON"
-    private val TURN_OFF = "TURN OFF"
     private fun onInitState() {
         /**(1)*/
         if (mBluetoothAdapter == null) {
@@ -236,17 +217,18 @@ class MainActivity : AppCompatActivity() {
     val STATE_ACCEPT = 11
     val STATE_CONNECTED = 12
     private var mState = STATE_NONE
+    @SuppressLint("MissingPermission")
     fun setState() {
         /**(1)*/
         when (mState) {
             STATE_NONE -> {
-                cb_secure.isChecked = security
-                cb_secure.visibility = View.GONE
+//                cb_secure.isChecked = security
+//                cb_secure.visibility = View.GONE
                 pb_connecting.visibility = View.GONE
                 tv_no_blue.visibility = View.VISIBLE
                 btn_turn_on.visibility = View.GONE
                 btn_visible.visibility = View.GONE
-                btn_accept.visibility = View.GONE
+//                btn_accept.visibility = View.GONE
                 btn_find.visibility = View.GONE
                 btn_disconnect.visibility = View.GONE
                 btn_send.visibility = View.GONE
@@ -259,13 +241,13 @@ class MainActivity : AppCompatActivity() {
             }
             /**(2)*/
             STATE_TURN_OFF -> {
-                cb_secure.isChecked = security
-                cb_secure.visibility = View.GONE
+//                cb_secure.isChecked = security
+//                cb_secure.visibility = View.GONE
                 pb_connecting.visibility = View.GONE
                 tv_no_blue.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.GONE
-                btn_accept.visibility = View.GONE
+//                btn_accept.visibility = View.GONE
                 btn_find.visibility = View.GONE
                 btn_disconnect.visibility = View.GONE
                 btn_send.visibility = View.GONE
@@ -278,12 +260,12 @@ class MainActivity : AppCompatActivity() {
             }
             /**(3)*/
             STATE_TURN_ON -> {
-                cb_secure.isChecked = security
-                cb_secure.visibility = View.VISIBLE
+//                cb_secure.isChecked = security
+//                cb_secure.visibility = View.VISIBLE
                 pb_connecting.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.VISIBLE
-                btn_accept.visibility = View.GONE
+//                btn_accept.visibility = View.GONE
                 btn_find.visibility = View.VISIBLE
                 btn_disconnect.visibility = View.GONE
                 btn_send.visibility = View.GONE
@@ -294,16 +276,16 @@ class MainActivity : AppCompatActivity() {
                 iv_data.visibility = View.GONE
                 btn_image.visibility = View.GONE
 
-                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
+//                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
             }
             /**(4)*/
             STATE_VISIBLE -> {
-                cb_secure.isChecked = security
-                cb_secure.visibility = View.GONE
+//                cb_secure.isChecked = security
+//                cb_secure.visibility = View.GONE
                 pb_connecting.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.VISIBLE
-                btn_accept.visibility = View.VISIBLE
+//                btn_accept.visibility = View.VISIBLE
                 btn_find.visibility = View.VISIBLE
                 btn_disconnect.visibility = View.GONE
                 btn_send.visibility = View.GONE
@@ -314,16 +296,16 @@ class MainActivity : AppCompatActivity() {
                 iv_data.visibility = View.GONE
                 btn_image.visibility = View.GONE
 
-                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
+//                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+//                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
             }
             /**(5)*/
             STATE_ACCEPT -> {
-                cb_secure.isChecked = security
-                cb_secure.visibility = View.GONE
+//                cb_secure.isChecked = security
+//                cb_secure.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.VISIBLE
-                btn_accept.visibility = View.VISIBLE
+//                btn_accept.visibility = View.VISIBLE
                 btn_find.visibility = View.VISIBLE
                 btn_disconnect.visibility = View.GONE
                 btn_send.visibility = View.GONE
@@ -334,17 +316,17 @@ class MainActivity : AppCompatActivity() {
                 iv_data.visibility = View.GONE
                 btn_image.visibility = View.GONE
 
-                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+//                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+//                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
             }
             /**(6)*/
             STATE_CONNECTED -> {
-                cb_secure.isChecked = security
-                cb_secure.visibility = View.GONE
+//                cb_secure.isChecked = security
+//                cb_secure.visibility = View.VISIBLE
                 pb_connecting.visibility = View.GONE
                 btn_turn_on.visibility = View.VISIBLE
                 btn_visible.visibility = View.VISIBLE
-                btn_accept.visibility = View.VISIBLE
+//                btn_accept.visibility = View.VISIBLE
                 btn_find.visibility = View.VISIBLE
                 btn_disconnect.visibility = View.VISIBLE
                 btn_send.visibility = View.VISIBLE
@@ -355,10 +337,33 @@ class MainActivity : AppCompatActivity() {
                 iv_data.visibility = View.VISIBLE
                 btn_image.visibility = View.VISIBLE
 
-                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
-                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+//                btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+//                btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
             }
         }
+
+        cb_secure.isChecked = security
+        cb_secure.visibility = View.GONE
+        if (mSecureAcceptThread != null) {
+            btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+            cb_secure.visibility = View.GONE
+        } else {
+            btn_accept.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
+        }
+
+       if(isVisibleClassBlue) {
+           btn_accept.visibility = View.VISIBLE
+           btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.green))
+       } else {
+           if (mBluetoothAdapter != null && mSecureAcceptThread == null &&  mBluetoothAdapter.isEnabled) {
+               cb_secure.visibility = View.VISIBLE
+           }
+           btn_accept.visibility = View.GONE
+           btn_visible.setBackgroundColor(ContextCompat.getColor(this, R.color.red))
+       }
+
+
+
     }
 
 
@@ -396,7 +401,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    var security : Boolean = false
+    var security: Boolean = false
     fun onCheckboxClicked(view: View) {
         if (view is CheckBox) {
             val checked: Boolean = view.isChecked
@@ -427,6 +432,7 @@ class MainActivity : AppCompatActivity() {
      * nếu không đồng ý thì chuyển sang trạng thái [STATE_TURN_ON]
      * ################################################################################################
      */
+     var isVisibleClassBlue :Boolean = false
     @SuppressLint("MissingPermission")
     fun visibleDevice() {
         if (!mBluetoothAdapter!!.isDiscovering) {
@@ -458,10 +464,12 @@ class MainActivity : AppCompatActivity() {
         /** The result for [visibleDevice]*/
         if (requestCode == REQUEST_DISCOVERABLE_BT) {
             if (resultCode == 120) {
+                isVisibleClassBlue = true
                 mState = STATE_VISIBLE
                 setState()
             }
             if (resultCode == 0) {
+                isVisibleClassBlue = false
                 mState = STATE_TURN_ON
                 setState()
             }
@@ -579,7 +587,7 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-//    /**
+    //    /**
 //     * ################################################################################################
 //     * FUNCTION   : Handle data before send message.
 //     * DESCRIPTION:
@@ -719,7 +727,8 @@ class MainActivity : AppCompatActivity() {
 //        result = ""
         encodedImage = ""
         security = false
-
+        typeDevice = NO_DEVICE
+        isVisibleClassBlue = false
         mState = STATE_VISIBLE
         runOnUiThread {
             setState()
@@ -815,7 +824,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission")
     private inner class AcceptThread(b: Boolean) : Thread() {
         private val mmServerSocket: BluetoothServerSocket? by lazy(LazyThreadSafetyMode.NONE) {
-            if(security){
+            if (security) {
                 mBluetoothAdapter?.listenUsingRfcommWithServiceRecord(NAME_SECURE, MY_UUID_SECURE)
             } else {
                 mBluetoothAdapter?.listenUsingInsecureRfcommWithServiceRecord(
@@ -856,6 +865,7 @@ class MainActivity : AppCompatActivity() {
                     Log.d("duc", "mmServerSocket!!.close()")
                     // Khi kết nối thành công.
                     mState = STATE_CONNECTED
+                    typeDevice = DEVICE_TYPE_CLASSIC
                     runOnUiThread {
                         setState()
                         tv_name.text = "Connected to ${socket.remoteDevice.name}"
@@ -883,7 +893,7 @@ class MainActivity : AppCompatActivity() {
     private inner class ConnectThread(device: BluetoothDevice) : Thread() {
 
         private val mmSocket: BluetoothSocket? by lazy(LazyThreadSafetyMode.NONE) {
-            if(security){
+            if (security) {
                 device.createRfcommSocketToServiceRecord(MY_UUID_SECURE)
             } else {
                 device.createInsecureRfcommSocketToServiceRecord(
@@ -908,7 +918,6 @@ class MainActivity : AppCompatActivity() {
                     // Start the thread to manage the connection and perform transmissions
                     mConnectedThread = ConnectedThread(socket)
                     mConnectedThread!!.start()
-
                     mState = STATE_CONNECTED
                     runOnUiThread {
                         setState()
@@ -953,8 +962,7 @@ class MainActivity : AppCompatActivity() {
 
 
     // Transfer Bluetooth data, the following: https://developer.android.com/guide/topics/connectivity/bluetooth/transfer-data
-    private inner class ConnectedThread(private val mmSocket: BluetoothSocket) : Thread()
-    {
+    private inner class ConnectedThread(private val mmSocket: BluetoothSocket) : Thread() {
 
         private val mmInStream: InputStream = mmSocket.inputStream
         private val mmOutStream: OutputStream = mmSocket.outputStream
@@ -993,7 +1001,7 @@ class MainActivity : AppCompatActivity() {
 //            mmOutStream.write(bytes)
             try {
                 mmOutStream.write(bytes)
-//                Log.d("duc", "mmOutStream: ${String(bytes)}")
+                Log.d("duc", "mmOutStream: ${String(bytes)}")
                 // Share the sent message with the UI activity.
                 val writtenMsg = handler.obtainMessage(
                     MESSAGE_WRITE, -1, -1, mmBuffer
@@ -1234,6 +1242,80 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * FOR BLUETOOTH LE
+     *
+     */
+    var typeDevice: Int = NO_DEVICE
+
+    override fun setTypeDevice(typeDevice: Int?) {
+        super.setTypeDevice(typeDevice)
+        if(typeDevice != null) this.typeDevice  = typeDevice
+    }
+
+    override fun onStart() {
+        super.onStart()
+        BluetoothLE(this).startServer(application, mBluetoothAdapter,
+//            gattServerCallback, gattServer
+           messageCharacteristic,
+        gattClient
+        )
+    }
+
+    override fun onStop() {
+        super.onStop()
+        BluetoothLE(this).stopServer()
+    }
+    private var messageCharacteristic: BluetoothGattCharacteristic? = null
+
+//    private var gattServerCallback: BluetoothGattServerCallback? = null
+//    private var gattServer: BluetoothGattServer? = null
+//
+//    override fun setGattServer(gattServer: BluetoothGattServer?) {
+//        super.setGattServer(gattServer)
+//        this.gattServer = gattServer
+//    }
+//
+//    override fun setGattServerCallback(gattServerCallback: BluetoothGattServerCallback?) {
+//        super.setGattServerCallback(gattServerCallback)
+//        this.gattServerCallback = gattServerCallback
+//    }
+
+    private var gattClient: BluetoothGatt? = null
+
+    override fun setGattClient(gattClient: BluetoothGatt?){
+        this.gattClient = gattClient
+    }
+
+    override fun setMessageCharacteristic(messageCharacteristic: BluetoothGattCharacteristic?) {
+        super.setMessageCharacteristic(messageCharacteristic)
+        this.messageCharacteristic = messageCharacteristic
+        Log.d(TAG, "messageCharacteristic2: $messageCharacteristic")
+    }
+
+    override fun showNotify(noBlue: String?, state: Int?, btnOn: String?, textData: String?, textName: String?) {
+
+
+            runOnUiThread {
+                if (noBlue != null) {
+                    tv_no_blue.append(noBlue)
+                }
+                if (state != null) {
+                    mState = state
+                }
+                if (btnOn != null) {
+                    btn_turn_on.text = btnOn
+                }
+                if (textData != null) {
+                    tv_data.text = textData
+                }
+                if (textName != null) {
+                    tv_name.text = textName
+                }
+                setState()
+            }
+
+    }
 
 }
 

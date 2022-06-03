@@ -1,4 +1,4 @@
-package com.example.bluetooth_android
+package com.example.bluetooth_android.adapter
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.annotation.NonNull
 import androidx.recyclerview.widget.RecyclerView
+import com.example.bluetooth_android.R
 
 internal class ListDeviceAdapter(private var itemsList: List<BluetoothDevice>) :
     RecyclerView.Adapter<ListDeviceAdapter.MyViewHolder>()

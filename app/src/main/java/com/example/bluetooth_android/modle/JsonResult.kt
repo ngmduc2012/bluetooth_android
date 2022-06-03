@@ -1,4 +1,4 @@
-package com.example.bluetooth_android
+package com.example.bluetooth_android.modle
 
 import com.beust.klaxon.Klaxon
 
