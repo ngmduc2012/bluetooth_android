@@ -210,12 +210,6 @@ class MainActivity : AppCompatActivity() , CallBack {
      *      DISCONNECT để ngắt kết nối.
      *################################################################################################
      */
-    val STATE_NONE = 7
-    val STATE_TURN_OFF = 8
-    val STATE_TURN_ON = 9
-    val STATE_VISIBLE = 10
-    val STATE_ACCEPT = 11
-    val STATE_CONNECTED = 12
     private var mState = STATE_NONE
     @SuppressLint("MissingPermission")
     fun setState() {
@@ -1243,7 +1237,7 @@ class MainActivity : AppCompatActivity() , CallBack {
     }
 
     /**
-     * FOR BLUETOOTH LE
+     * FOR BLUETOOTH LE ##########
      *
      */
     var typeDevice: Int = NO_DEVICE
@@ -1268,19 +1262,6 @@ class MainActivity : AppCompatActivity() , CallBack {
     }
     private var messageCharacteristic: BluetoothGattCharacteristic? = null
 
-//    private var gattServerCallback: BluetoothGattServerCallback? = null
-//    private var gattServer: BluetoothGattServer? = null
-//
-//    override fun setGattServer(gattServer: BluetoothGattServer?) {
-//        super.setGattServer(gattServer)
-//        this.gattServer = gattServer
-//    }
-//
-//    override fun setGattServerCallback(gattServerCallback: BluetoothGattServerCallback?) {
-//        super.setGattServerCallback(gattServerCallback)
-//        this.gattServerCallback = gattServerCallback
-//    }
-
     private var gattClient: BluetoothGatt? = null
 
     override fun setGattClient(gattClient: BluetoothGatt?){
@@ -1294,8 +1275,6 @@ class MainActivity : AppCompatActivity() , CallBack {
     }
 
     override fun showNotify(noBlue: String?, state: Int?, btnOn: String?, textData: String?, textName: String?) {
-
-
             runOnUiThread {
                 if (noBlue != null) {
                     tv_no_blue.append(noBlue)

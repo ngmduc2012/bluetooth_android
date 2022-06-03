@@ -36,8 +36,23 @@ const val LOCATION_REQUEST = 2
 val REQUEST_DISCOVERABLE_BT = 1
 val TAG = "123"
 
+/**
+ * Type of bluetooth
+ * ---------------------------------------------------------------------------------------------
+ * thể loại của bluetooth
+ */
+val DEVICE_TYPE_CLASSIC = 1
+val DEVICE_TYPE_DUAL = 3
+val DEVICE_TYPE_LE = 2
+val DEVICE_TYPE_UNKNOWN = 0
+val NO_DEVICE = 4
 
-
+val STATE_NONE = 7
+val STATE_TURN_OFF = 8
+val STATE_TURN_ON = 9
+val STATE_VISIBLE = 10
+val STATE_ACCEPT = 11
+val STATE_CONNECTED = 12
 
 /**
  * I. BLUETOOTH LE ##############
@@ -74,11 +89,6 @@ val MESSAGE_UUID_IOS: UUID = UUID.fromString("89d3502b-0f36-433a-8ef4-c502ad55f8
 //val CONFIRM_UUID: UUID = UUID.fromString("36d4dc5c-814b-4097-a5a6-b93b39085928")
 
 
-val STATE_NONE = 7
-val STATE_TURN_OFF = 8
-val STATE_TURN_ON = 9
-val STATE_CONNECTED = 12
-
 val TURN_ON = "TURN ON"
 val TURN_OFF = "TURN OFF"
 
@@ -104,16 +114,6 @@ const val ACTION_GATT_DISCONNECTED =
  * II. BLUETOOTH CLASS ##############
  */
 
-/**
- * Type of bluetooth
- * ---------------------------------------------------------------------------------------------
- * thể loại của bluetooth
- */
-val DEVICE_TYPE_CLASSIC = 1
-val DEVICE_TYPE_DUAL = 3
-val DEVICE_TYPE_LE = 2
- val DEVICE_TYPE_UNKNOWN = 0
-val NO_DEVICE = 4
 
 /**
  * Using for the initialization that is type of bluetooth connection: This is SECURE
